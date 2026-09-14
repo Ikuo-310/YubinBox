@@ -8,7 +8,7 @@ Gmail Webの外部SMTPを利用した「Send mail as」機能終了への対応�
 
 ## 現在の状態
 
-開発初期段階です。現時点ではディレクトリ構成と設計ドキュメントのみで、動作するGateway、拡張、Dockerイメージ、管理UIはありません。言語・フレームワーク・データベースも未選定です。
+開発初期段階です。設計ドキュメントと、Firefox＋InboxSDKによる読み取り専用の拡張PoCがあります。PoCはローカルテスト済みですが、Firefox／Gmailでの動作は未確認です。Gateway、送信機能、Dockerイメージ、管理UIはありません。本実装の言語・フレームワーク・データベースも未選定です。
 
 最初の対象ブラウザは**Firefox**です。Gmail連携には**InboxSDKを第一候補として検討**していますが、Firefoxでの動作や取得できる情報は未検証です。採用は小さなPoCの結果を見て判断します。
 
@@ -38,10 +38,11 @@ SMTP認証情報はGatewayだけが保持し、拡張へ渡しません。Gmail 
 ```text
 YubinBox/
 ├─ gateway/README.md
-├─ extension/README.md
+├─ extension/              # README、PoCコード、ビルド・テスト、依存情報
 ├─ docs/
 │  ├─ architecture.md
-│  └─ development-plan.md
+│  ├─ development-plan.md
+│  └─ inboxsdk-poc-results.md
 ├─ .gitignore
 ├─ LICENSE
 ├─ README.md
@@ -52,7 +53,7 @@ YubinBox/
 
 ## 次の開発ステップ
 
-最初に[Firefox＋InboxSDKのPoC](docs/development-plan.md#最初のissue候補firefoxinboxsdkでgmail連携を検証する)を実施し、Compose／Replyの検出、本文・宛先取得、返信に必要な元メール情報の取得範囲を確認します。このPoCではSMTP送信を実装しません。
+[拡張README](extension/README.md)の手順でPoCをFirefoxへ読み込み、Compose／Replyの検出、本文・宛先取得、返信に必要な元メール情報の取得範囲を確認します。[検証結果表](docs/inboxsdk-poc-results.md)の実機項目は未確認です。このPoCではSMTP送信を実装しません。
 
 設計の詳細は[アーキテクチャ](docs/architecture.md)、未決定事項と以降の順序は[開発方針](docs/development-plan.md)、変更履歴は[CHANGELOG](CHANGELOG.md)を参照してください。
 
@@ -60,4 +61,4 @@ YubinBox/
 
 YubinBoxの独自コードおよびドキュメントは、**GNU Affero General Public License v3.0 only（SPDX: `AGPL-3.0-only`）**で提供します。「v3.0以降」ではなく、バージョン3.0のみを指定します。標準のライセンス全文は[LICENSE](LICENSE)を参照してください。
 
-InboxSDKなどの第三者依存には、それぞれのライセンスが適用されます。導入・再配布時は対象バージョンのライセンスを確認し、必要な著作権表示、ライセンス全文、NOTICEなどをソースと配布物に保持します。第三者の表示をYubinBoxのライセンスで上書きしません。現在、第三者依存はまだ導入していません。
+InboxSDKなどの第三者依存には、それぞれのライセンスが適用されます。必要な著作権表示、ライセンス全文、NOTICEなどをソースと配布物に保持し、第三者の表示をYubinBoxのライセンスで上書きしません。PoCで利用するInboxSDKの詳細は[第三者ライセンス表示](extension/THIRD_PARTY_NOTICES.md)を参照してください。

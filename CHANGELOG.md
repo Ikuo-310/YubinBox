@@ -6,6 +6,15 @@
 
 ### Added
 
+- Compose診断を`[snapshot]`／`[related]`とJSONの単一ログに変更。SDK取得値から許可したフィールドだけを明示的にコピーし、Consoleフィルターによる本文の非表示を回避。
+
+- Composeの検出・変更イベントから基本情報と同一スレッド候補を自動取得。メール内容を含む診断はローカル設定`diagnosticOutput: true`でのみ有効化し、既定では無効。イベント種類ごとに500ms集約し、関連情報をCompose連番・revision・reasonで照合。
+
+- Firefox MV3向けInboxSDK PoC。Compose別console出力、編集後の再取得、手動での同一スレッド候補・宛先取得。
+- `@inboxsdk/core@2.2.24`の固定依存とロックファイル、Node標準機能によるビルド・7件の自動テスト。
+- App ID設定とFirefox一時読み込みの手順、実機未確認の結果表。
+- InboxSDKの著作権表示とMIT／Apacheライセンス原文を追加し、配布バンドル内の表示とともに保持。
+
 - Gateway・Browser Extension・docsの初期モノレポ構成。
 - プロジェクト概要、責務分離、SMTP ProfileとSending Identityの設計方針。
 - 外部APIとLAN内管理UIの公開境界、Token・秘密情報の管理方針。
@@ -13,4 +22,4 @@
 - ローカル設定、秘密情報、永続データ、生成物を対象とする`.gitignore`。
 - GNU AGPL v3の標準`LICENSE`全文と、`AGPL-3.0-only`の適用指定、第三者の著作権・ライセンス表示を保持する方針。
 
-機能実装・依存ライブラリ導入・技術スタック選定は行っていません。
+初期整備では機能実装・依存導入を行わず、その後、読み取り専用の拡張PoCを追加しました。Gateway・送信機能は未実装で、Firefox／Gmailでの実測と本実装の技術スタック選定は未完了です。

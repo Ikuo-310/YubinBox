@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "YubinBox InboxSDK PoC",
+  "version": "0.0.1",
+  "description": "Read-only Gmail Compose diagnostics for the YubinBox PoC.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "inboxsdk-poc@yubinbox.local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": ["scripting"],
+  "host_permissions": ["https://mail.google.com/*"],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [{
+    "matches": ["https://mail.google.com/*"],
+    "js": ["config.js", "inboxsdk.js", "probe.js", "content.js"],
+    "run_at": "document_end"
+  }]
+}
