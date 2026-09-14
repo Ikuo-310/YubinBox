@@ -14,7 +14,7 @@
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{
     "matches": ["https://mail.google.com/*"],
-    "js": ["config.js", "inboxsdk.js", "probe.js", "content.js"],
+    "js": ["config.js", "inboxsdk.js", "probe.js", "dom-action.js", "content.js"],
     "run_at": "document_end"
   }]
 }

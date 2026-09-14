@@ -9,6 +9,53 @@ const context = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(await readFile(new URL('../src/probe.js', import.meta.url), 'utf8'), context);
 const probe = context.YubinBoxProbe;
 
+test('multiple reply candidates never become an exact target or RFC headers; identity remains a candidate', async () => {
+  const messages = ['older', 'newer'].map((id) => ({
+    isLoaded: () => true, getMessageIDAsync: async () => id,
+    getSender: () => ({ emailAddress: `${id}@example.invalid` }),
+    getRecipientsFull: async () => [{ emailAddress: 'domain@example.invalid' }],
+    getTargetMessageID() { throw new Error('must not use internal API'); },
+    getHeaders() { throw new Error('must not invent undocumented getter'); },
+  }));
+  const raw = await probe.relatedMessages({ status: 'ok', value: 'thread' }, [{
+    getThreadIDAsync: async () => 'thread', getMessageViewsAll: () => messages,
+  }]);
+  const plain = probe.diagnosticPlain({ relatedMessages: raw }, true);
+  assert.equal(plain.exactReplyTarget.status, 'unsupported');
+  assert.equal(plain.exactReplyTarget.value, null);
+  assert.ok(plain.exactReplyTarget.reason.includes('Thread membership'));
+  assert.equal(plain.relatedMessages.candidates.length, 2);
+  for (const candidate of plain.relatedMessages.candidates) {
+    assert.equal(candidate.originalTo.status, 'unsupported');
+    assert.equal(candidate.originalCc.value, null);
+    assert.equal(candidate.receivingIdentityCandidates.selectedIdentity, null);
+    assert.equal(candidate.receivingIdentityCandidates.value[0].emailAddress, 'domain@example.invalid');
+    for (const field of Object.values(candidate.rfcHeaders)) {
+      assert.equal(field.status, 'unsupported');
+      assert.equal(field.api, null);
+      assert.equal(field.value, null);
+      assert.equal(field.attempted, false);
+      assert.ok(field.reason);
+    }
+  }
+});
+
+test('forward and reply modes preserve SDK booleans but do not infer Reply All', () => {
+  for (const isForward of [true, false]) {
+    const plain = probe.diagnosticPlain(probe.composeFields({
+      isForward: () => isForward, isReply: () => !isForward,
+      getToRecipients: () => [], getCcRecipients: () => [],
+      getSubject: () => 'Synthetic', getTextContent: () => 'text',
+      getHTMLContent: () => '<p>text</p>', getThreadID: () => null,
+    }));
+    assert.equal(plain.mode.isForward.value, isForward);
+    assert.equal(plain.mode.isReply.value, !isForward);
+    assert.equal(plain.mode.replyVsReplyAll.status, 'unsupported');
+    assert.equal(plain.gmailInternalIds.threadId.value, null);
+    assert.equal(plain.bodyHTML.value, '<p>text</p>');
+  }
+});
+
 test('diagnostic projection serializes only explicit mail fields, including null and undefined', () => {
   const sdkObject = {
     name: 'Test User', emailAddress: 'test@example.invalid',
@@ -101,7 +148,7 @@ for (const diagnosticOutput of [true, false, 'true']) {
         assert.equal(related.revision, base.revision);
         assert.equal(related.gmailInternalDraftId.value, 'synthetic-draft');
         assert.equal(related.relatedMessages.candidates[0].gmailMessageId.value, 'synthetic-message');
-        assert.equal(related.relatedMessages.exactReplyTarget, 'unverified');
+        assert.equal(related.relatedMessages.exactReplyTarget.status, 'unsupported');
       }
     } else {
       assert.equal(reads, 0);
@@ -193,7 +240,7 @@ test('partial getter failure does not hide other fields; edits are re-read', () 
   subject = 'Edited synthetic subject';
   assert.equal(probe.composeFields(view).subject.value, subject);
   assert.equal(first.subject.value, 'Synthetic subject');
-  for (const field of Object.values(first.rfcHeaders)) assert.equal(field.status, 'not-collected');
+  for (const field of Object.values(first.rfcHeaders)) assert.equal(field.status, 'unsupported');
 });
 
 test('recipient count never becomes a Reply All classification', () => {
@@ -202,7 +249,7 @@ test('recipient count never becomes a Reply All classification', () => {
     getToRecipients: () => [{ emailAddress: 'a@example.invalid' }, { emailAddress: 'b@example.invalid' }],
   });
   assert.equal(snapshot.mode.isReply.value, true);
-  assert.equal(snapshot.mode.replyVsReplyAll.status, 'not-collected');
+  assert.equal(snapshot.mode.replyVsReplyAll.status, 'unsupported');
 });
 
 test('async reads distinguish missing, null, rejection, and timeout', async () => {

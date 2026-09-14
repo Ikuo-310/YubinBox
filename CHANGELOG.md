@@ -6,6 +6,14 @@
 
 ### Added
 
+- 三点メニュー起点の単一MessageView候補と新規Reply Composeの時間的相関診断。TTLはクリックから5秒、使い捨て。exactReplyTargetには反映しない。
+
+- DOM helper評価・listener登録の段階ログと、最初の30クリックに限定した未分類クリック診断を追加。未知ラベルの原文は出さず、既存selector・操作分類は維持。
+
+- Exact Reply Target調査用の限定DOM helper。明示診断設定時だけ返信操作ラベルのclickとSDK MessageView要素の包含関係を記録。本番判定には使わず、DOM属性の任意値やメール本文は取得・出力しない。
+
+- 返信元情報PoC：Exact Reply Target、RFCヘッダー、Reply All直接識別、元To／Cc区分の公開API上の制約を理由付きJSONへ記録。統合宛先に基づく受信Identity候補を追加し、選択は行わない。複数候補・Forward診断のテストと実機手順を追加。
+
 - Compose診断を`[snapshot]`／`[related]`とJSONの単一ログに変更。SDK取得値から許可したフィールドだけを明示的にコピーし、Consoleフィルターによる本文の非表示を回避。
 
 - Composeの検出・変更イベントから基本情報と同一スレッド候補を自動取得。メール内容を含む診断はローカル設定`diagnosticOutput: true`でのみ有効化し、既定では無効。イベント種類ごとに500ms集約し、関連情報をCompose連番・revision・reasonで照合。

@@ -2,6 +2,57 @@
 
 ## 現在の結論
 
+### 三点メニュー起点とReply Composeの時間的相関PoC
+
+「その他のメッセージ オプション」BUTTONとSDK MessageView要素の包含一致を使い、単一候補のSDK内部Message IDをクリック時刻から5秒だけ相関対象にします。0件・複数件は保持せず、次の新規Composeで一度だけ消費します。Reply判定true・期限内・ID取得成功時のみ別診断`[dom-compose-correlation]`を出力します。保持状況は`[dom-pending-target]`です。ID取得とCompose検出の非同期順序も考慮しています。
+
+既存のexactReplyTarget.status=unsupportedは維持します。メニュー項目の文字列を読んだり、Reply All／Forward判定を追加したりはしていません。isReplyがtrueでもReply Allを除外できず、時間的相関は返信元の証明ではありません。実機検証は未実施です。古いメール／最新メールの三点メニューから5秒以内のReply、5秒超のReply、2回目Composeへの非再利用を確認してください。
+
+### 限定DOM helper追加
+
+Exact Reply Target調査専用のDOMクリック観測を追加しました。本番依存・送信判定としては未採用です。実機ではまだ未検証です。SDKのみの取得制約については下記の結論を維持します。
+
+documentのcapture・passive clickから最大8階層を調べ、aria-label／titleが英語または日本語の返信操作名と完全一致した場合だけ診断します。SDK MessageView.getElement()との包含関係がある場合、SDK由来のmessage ID・thread IDを取得し、既存same-thread候補との照合材料として出します。isLoaded、DOM IDの文字列一致、class名、最新メール順序からは推定しません。単一候補もmediumに留め、複数候補はlow、Exact Reply Targetはunverifiedです。
+
+メール本文・宛先・件名はDOMから読みません。任意のaria／title／data属性値は出さず、既知操作名の分類と限定した識別属性の存在だけを出します。ラベルなし操作・別言語・別階層のメニューへの対応は制限があります。右上メニューも認識できるラベルがあればログを出しますが、候補なしの場合に前のクリックから推定する処理はありません。
+
+実機確認：diagnosticOutputをtrueにして再ビルド・再読み込み後、複数メールthreadの古い／最新メールで下部ボタンと右上メニューのReply／Reply All／Forwardをそれぞれ試します。`[dom-action]`のcandidateMatchesを`[related]`のSDK IDと照合し、候補なし／複数候補も記録してください。Composeとの紐付けや操作完了を証明するログではありません。SDK getterの失敗はstatusに残し、エラー文は出しません。
+
+### 返信元情報PoCの追検証（2026-09-14）
+
+利用者のFirefox実機報告で、新規Compose、Reply判定、To／Cc／Subject、本文text／HTML、Gmail Thread ID・Draft ID、同一threadのMessageView候補、Sender、元メール宛先に含まれる独自ドメインアドレスの取得が確認できました。以下はその報告と公開API調査を分けた整理です。今回追加した診断フィールドの実機確認はまだです。
+
+| 分類 | 項目 | 根拠・制約 |
+| --- | --- | --- |
+| InboxSDKだけで取得可能（実機報告） | 上記Compose値・内部ID・同一thread候補・Sender・元メールの統合宛先 | 実行条件全般の保証ではない。受信Identityの自動確定はしていない。 |
+| 現行公開APIでは取得不能 | Exact Reply Target | Composeと特定のMessageViewを対応付ける公開getterなし。複数候補の順序・最新・宛先・表示状態からは選ばない。候補1件でも確定しない。 |
+| 現行公開APIでは取得不能 | RFC Message-ID／References／In-Reply-To | core 2.2.24の公開ComposeView／MessageView APIに取得メソッドなし。内部IDを転用しない。 |
+| 現行公開APIでは取得不能 | ReplyとReply Allの直接区別 | `isReply()`はReply All専用フラグではない。宛先人数からは推定しない。 |
+| 現行公開APIでは取得不能 | 元メールのTo／Cc別リスト | `getRecipientsFull()`はTo／Cc／Bccの統合リスト。Compose自身のTo／Ccとは区別する。 |
+| まだ未検証 | Forward実機・今回の制約診断JSON | `isForward()`と既存の宛先・件名・本文・thread getterを利用。nullを補完しない。 |
+
+#### 調査根拠と採用しなかった経路
+
+[Compose公式API](https://inboxsdk.github.io/inboxsdk-docs/compose/)と[Conversations公式API](https://inboxsdk.github.io/inboxsdk-docs/conversations/)、固定パッケージの`src/platform-implementation-js/views/compose-view.d.ts`・`views/conversations/message-view.d.ts`を照合しました。`getInitialMessageID()`は既存ドラフトの初期IDであり返信元のIDではありません。
+
+配布ソースマップのMessageView実装も確認しました。型定義に残る`hasOpenReply()`はAPI version 1終了後に廃止され、現在の`load(2, ...)`では例外になります。呼び出しません。`getTargetMessageID()`は内部Gmail Compose driver、`getRfcMessageIdForSyncMessageId`は内部driver helperです。公開APIではないため呼び出し・importとも行いません。DOMやGmail APIにも切り替えていません。
+
+#### JSONの意味
+
+`[snapshot]`の`exactReplyTarget`、`mode.replyVsReplyAll`、`rfcHeaders`、`[related]`の`exactReplyTarget`・`rfcHeaders`と候補ごとの`rfcHeaders`は、未提供の公開APIについて`{api: null, status: "unsupported", value: null, attempted: false, reason: "..."}`を記録します。利用できるgetterがないため実API呼び出しはしていません。呼び出して失敗したという結果や、値を取得できたという結果にはしません。
+
+候補ごとの`originalTo`／`originalCc`にも取得不能理由を記録します。`receivingIdentityCandidates`は`getRecipientsFull()`で取得した統合宛先を根拠として持ち、`selectedIdentity: null`です。独自ドメインや登録済みIdentityとの照合設定は追加していません。他の受信者を利用者本人とみなさず、正確な返信元が未確定である点も維持します。
+
+#### 次のFirefox実機操作
+
+1. `diagnosticOutput: true`で再ビルドし、拡張とGmailを再読み込みする。
+2. テスト用の複数メッセージthreadで、最新メールと古いメールそれぞれからReplyを開く。編集イベントで`[snapshot]`／`[related]`を取得し、候補が複数でもexact targetが推定されないことを確認する。
+3. 同じ元メールからReply Allを開く。画面で選んだ操作を手元で記録し、ComposeのTo／Cc、候補Sender・統合宛先・Identity候補を比較する。Reply Allフラグと元To／Ccがunsupportedのままであることを確認する。
+4. 元メールの折りたたみ／展開、返信のポップアウト、既存ドラフト再開を試す。取得不足時はstatusを記録する。
+5. Forwardを開き、`mode.isForward`、To／Cc、Subject、bodyText／bodyHTML、thread IDを比較する。RFC項目はどのケースもunsupported・nullであることを確認する。送信は不要。
+
+以下の初回PoC記録の「未確認」は初回時点の記録です。最新の判定は上表を参照してください。
+
 **利用者のFirefox実機報告では、SDK初期化・Compose検出・変更イベントまで成功しています。** 今回追加したイベント別自動スナップショットの値・関連候補は実機で未確認で、InboxSDK採用判断は保留です。APIの存在、イベント発生、実際の値の取得成功を区別します。Alt＋Shift＋Yは反応しなかったとの報告があり、今回は修正・調査せず自動取得で検証します。
 
 調査日：2026-09-14。対象：`@inboxsdk/core@2.2.24`、API version：`2`。npmの`gitHead`：`ec7ea453503a081061a573e97ad0cd32d415f864`。Firefox 128以上を想定していますが、実行バージョンは未記録です。
@@ -39,7 +90,7 @@
 
 ## ローカルで実施した検証
 
-Windows、Node.js `v24.19.0`で`extension/`の`npm test`を実行し、20テストが成功しました。
+Windows、Node.js `v24.19.0`で`extension/`の`npm test`を実行し、26テストが成功しました。DOM helperについて無効時の無出力・操作分類・属性sanitization・本文非参照・複数候補の未確定を追加検証しました。
 
 利用者報告では詳細出力を有効にしたイベント見出しは表示されましたが、展開しても本文が見えませんでした。従来はprefix付きグループとprefixなしJSONを別ログにしていたため、Consoleの文字列フィルターでJSONが除外され得ます。今回はprefixとJSONを同一ログに変更しました。実機での原因確定・修正後の表示確認は未実施です。明示フィールドへの変換、null／undefined、循環参照やtoJSONを持つ取得値、余分な資格情報フィールドの除外をローカルテストで確認しました。
 

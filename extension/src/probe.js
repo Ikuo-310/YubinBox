@@ -97,6 +97,15 @@
     };
   }
   const unavailable = (reason) => ({ status: 'not-collected', reason });
+  const unsupported = (reason) => ({ api: null, status: 'unsupported', value: null, attempted: false, reason });
+  const exactTarget = () => unsupported('No public ComposeView-to-MessageView association API in core 2.2.24. Thread membership, order, sender and recipient counts do not identify the reply target.');
+  const replyAll = () => unsupported('isReply() does not distinguish Reply from Reply All; no dedicated public getter. Record the Gmail operation manually.');
+  const originalRecipientRoles = () => unsupported('getRecipientsFull() combines To/Cc/Bcc; original To and Cc cannot be separated with the reviewed public APIs.');
+  const rfcHeaders = () => ({
+    messageId: unsupported('No public RFC Message-ID getter in core 2.2.24; Gmail message IDs are not RFC Message-IDs.'),
+    references: unsupported('No public References getter in core 2.2.24.'),
+    inReplyTo: unsupported('No public In-Reply-To getter in core 2.2.24. No reply header is inferred from thread membership.'),
+  });
   const valueResult = (value) => value == null
     ? { status: 'empty', value: null }
     : { status: 'ok', value };
@@ -132,7 +141,7 @@
         isReply: read(view, 'isReply'),
         isForward: read(view, 'isForward'),
         isInlineReplyForm: read(view, 'isInlineReplyForm'),
-        replyVsReplyAll: unavailable('No dedicated public API found; compare manually labelled Reply / Reply All runs.'),
+        replyVsReplyAll: replyAll(),
       },
       to: read(view, 'getToRecipients'),
       cc: read(view, 'getCcRecipients'),
@@ -140,11 +149,8 @@
       bodyText: read(view, 'getTextContent'),
       bodyHTML: read(view, 'getHTMLContent'),
       gmailInternalIds: { threadId: read(view, 'getThreadID') },
-      rfcHeaders: {
-        messageId: unavailable('No public RFC Message-ID getter found. Gmail IDs are not RFC IDs.'),
-        references: unavailable('No public References getter found.'),
-        inReplyTo: unavailable('Exact reply target and its RFC Message-ID are unverified.'),
-      },
+      exactReplyTarget: exactTarget(),
+      rfcHeaders: rfcHeaders(),
     };
   }
   async function relatedMessages(threadId, threadViews) {
@@ -196,6 +202,11 @@
       value: convert(v?.value),
     });
     const contacts = (v) => list(v, contact);
+    const identityCandidates = (v) => ({
+      api: 'getRecipientsFull', status: string(v?.status),
+      value: contacts(v?.value), selectedIdentity: null,
+      reason: 'Combined recipient candidates only; no configured identities or exact reply target to select from.',
+    });
     const base = {
       compose: string(value?.compose), revision: number(value?.revision),
       reason: string(value?.reason), capturedAt: string(value?.capturedAt),
@@ -204,8 +215,10 @@
       ...base, completedAt: string(value?.completedAt),
       changedDuringLookup: boolean(value?.changedDuringLookup),
       gmailInternalDraftId: result(value?.gmailInternalDraftId),
+      exactReplyTarget: exactTarget(), rfcHeaders: rfcHeaders(),
       relatedMessages: {
-        status: string(value?.relatedMessages?.status), exactReplyTarget: 'unverified',
+        status: string(value?.relatedMessages?.status), exactReplyTarget: exactTarget(),
+        reason: string(value?.relatedMessages?.reason),
         threadLookups: list(value?.relatedMessages?.threadLookups, (v) => result(v)),
         viewErrors: list(value?.relatedMessages?.viewErrors, (v) => result(v)),
         candidates: list(value?.relatedMessages?.candidates, (v) => ({
@@ -213,6 +226,9 @@
           gmailMessageId: result(v?.gmailMessageId), sender: result(v?.sender, contact),
           visibleRecipientEmails: result(v?.visibleRecipientEmails, (v) => list(v, string)),
           recipientsFull: result(v?.recipientsFull, contacts),
+          originalTo: originalRecipientRoles(), originalCc: originalRecipientRoles(),
+          receivingIdentityCandidates: identityCandidates(v?.recipientsFull),
+          rfcHeaders: rfcHeaders(),
         })),
       },
     };
@@ -222,16 +238,13 @@
         isReply: result(value?.mode?.isReply, boolean),
         isForward: result(value?.mode?.isForward, boolean),
         isInlineReplyForm: result(value?.mode?.isInlineReplyForm, boolean),
-        replyVsReplyAll: { status: 'not-collected', value: null },
+        replyVsReplyAll: replyAll(),
       },
       to: result(value?.to, contacts), cc: result(value?.cc, contacts),
       subject: result(value?.subject), bodyText: result(value?.bodyText), bodyHTML: result(value?.bodyHTML),
       gmailInternalIds: { threadId: result(value?.gmailInternalIds?.threadId) },
-      rfcHeaders: {
-        messageId: { status: 'not-collected', value: null },
-        references: { status: 'not-collected', value: null },
-        inReplyTo: { status: 'not-collected', value: null },
-      },
+      exactReplyTarget: exactTarget(),
+      rfcHeaders: rfcHeaders(),
     };
   }
   globalThis.YubinBoxProbe = Object.freeze({ read, readAsync, composeFields, relatedMessages, unavailable, sanitizeLoadError, applyFirefoxRuntimeShim, diagnosticPlain });

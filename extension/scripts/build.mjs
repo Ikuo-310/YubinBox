@@ -25,7 +25,7 @@ await mkdir(out, { recursive: true });
 for (const name of ['inboxsdk.js', 'pageWorld.js', 'inboxsdk.js.map', 'pageWorld.js.map']) {
   await copyFile(path.join(sdkDir, name), path.join(out, name));
 }
-for (const name of ['background.js', 'probe.js', 'content.js']) {
+for (const name of ['background.js', 'probe.js', 'dom-action.js', 'content.js']) {
   await copyFile(path.join(root, 'src', name), path.join(out, name));
 }
 await copyFile(path.join(root, 'manifest.json'), path.join(out, 'manifest.json'));

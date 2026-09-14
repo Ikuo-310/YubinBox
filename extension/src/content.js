@@ -61,10 +61,14 @@
     // hide the payload beneath a matching group heading.
     console.log(`${prefix}[${kind}]\n${JSON.stringify(plain, null, 2)}`);
   }
+  let domDiagnostics;
   function registerCompose(view) {
     if (views.has(view)) return;
     const state = { label: `compose-${++sequence}`, timers: new Map(), revision: 0, busy: false, listeners: [] };
     views.set(view, state);
+    if (domDiagnostics && config.diagnosticOutput === true) {
+      void domDiagnostics.correlate(state.label, probe.read(view, 'isReply').value === true);
+    }
     const capture = async (reason, includeRelated = true) => {
       if (view.destroyed || !views.has(view)) return;
       const revision = ++state.revision;
@@ -140,6 +144,11 @@
         view.on('destroy', () => threads.delete(view));
       });
       sdk.Compose.registerComposeViewHandler(registerCompose);
+      // Independent diagnostic observer; failures must not affect the SDK PoC.
+      try { domDiagnostics = globalThis.YubinBoxDomAction?.start(sdk, config.diagnosticOutput); }
+      catch {
+        if (config.diagnosticOutput === true) console.info('[YubinBox PoC][dom-action] observer unavailable');
+      }
       document.addEventListener('keydown', (event) => {
         if (event.isTrusted && !event.repeat && event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyY') {
           // No preventDefault, stopPropagation, send hooks or Gmail UI changes.
