@@ -2,13 +2,27 @@
 
 この文書は初期設計方針です。APIスキーマやデータベース定義を確定するものではありません。
 
+## 拡張側の送信判断（2026-09-15）
+
+Firefox＋InboxSDK 2.2.24でNew／Reply／ForwardとReply routingを実機確認済みです。isForward=trueを優先し、falseかつisReply=trueならreply、それ以外はnewです。Reply Allはreplyと同じ扱いです。Gmail ComposeのTo/Cc/Bcc・Subject・本文text/HTMLをそのまま使い、件名・宛先を再構築しません。
+
+Reply sourceは三点メニューのfresh pending（単一MessageView一致、5秒TTL、consume-once、source=message-menu）を優先します。なければ同一ThreadViewの最後のMessageViewを採用しsource=thread-bottom-replyとします。New／Forwardでは探索せず、newの保存後のThread IDも返信元とは扱いません。
+
+sourceのvisible recipient emailsを優先し、getRecipientsFull()は補助です。取得済み宛先と登録YubinBox Identityが1件一致ならそのIdentity・transport=yubinboxでauto。0件一致ならsendingIdentity=null・transport=gmail・auto・reason=no-yubinbox-identity-matchでGmail nativeへfallbackします。宛先取得不能・複数一致だけmanual-requiredです。アドレス末尾によるtransport推測や未登録Identityの生成はしません。登録定義のtransportを使い、GmailアドレスをYubinBox Identityとして管理する必要はありません。
+
+自動決定Replyは送信元確認表示を必須・通常変更不可とします。Gmail nativeの確認表示用addressはnullでtransport=gmailを保持します。New／Forwardはユーザーが送信Identityを選択する予定です。確認・選択UIは未実装で、共通送信データと表示用状態まで保持します。
+
+PoCではconfig.local.jsonのidentitiesにid/address/transportを登録します。将来はGatewayをIdentity管理元とし、拡張はGateway APIから一覧を取得します。Gateway URL／Tokenは拡張設定画面で変更可能にし、本番の設定変更に再ビルドを要求しません。
+
+共通送信データはmode・sendingIdentity・transport・identityResolution・確認表示情報、Compose内容、Gmail内部ID・sourceMessageです。gmailはGmail標準送信、yubinboxはGateway送信へ接続する区分ですが、現PoCは送信しません。RFC reply headersの取得・生成は未対応で、内部Message IDをRFC Message-IDやSMTP In-Reply-Toへ転用しません。
+
 ## 全体像と責務
 
 ```text
 受信: 外部の送信者 → 既存メール転送サービス → Gmail Web
 
-送信: Gmail Web + Firefox拡張
-                  │ HTTPS / Bearer Token
+送信: Gmail Web + Firefox拡張 → transport=gmailならGmail標準送信（将来）
+                  │ transport=yubinbox: HTTPS / Bearer Token（将来）
                   ▼
         外部公開経路（Cloudflare Tunnelなど）
                   │ 必要なAPIのみ
@@ -42,6 +56,8 @@ GatewayはGmailに依存しない送信サービス、拡張はGmailとの接続
 
 ## 送信フローとAPI境界
 
+以下は将来のYubinBox送信フローです。Gmail native routingはGatewayへ送信しません。
+
 1. 拡張が設定済みベースURLへBearer Token付きで問い合わせ、送信用Identity情報を取得する。
 2. 利用者がIdentityと送信内容を確認し、YubinBox送信を選択する。
 3. 拡張が想定パス`/api/send`へIdentityと宛先・件名・本文・取得できた返信情報を送る。
@@ -57,7 +73,7 @@ SMTPによる受付と最終配送は区別します。タイムアウト後の�
 
 ## 返信とArchive BCC
 
-返信ではRFCの`Message-ID`・`References`・`In-Reply-To`に利用できる情報が必要です。Gmail／InboxSDKのメッセージIDやスレッドIDをRFC Message-IDと同一視しません。取得可能性と情報の意味は最初のPoCで確認します。
+返信ではRFCの`Message-ID`・`References`・`In-Reply-To`に利用できる情報が必要です。Gmail／InboxSDKのメッセージIDやスレッドIDをRFC Message-IDと同一視しません。公開APIからこれらのRFCヘッダーを取得できないことは確認済みで、別途取得・生成方法を決めます。Gmail／Thunderbird等のthreadingは実SMTP送信時の未検証事項です。
 
 Archive BCCはGatewayがIdentity設定から追加するSMTP配送先です。BCC宛先がTo／Ccや配信メッセージのBCCヘッダーとして漏れないように構成します。送信者が入力する通常BCCへの対応は別途検討します。
 
