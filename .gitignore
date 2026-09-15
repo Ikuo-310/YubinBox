@@ -25,7 +25,10 @@
 *.log
 logs/
 
-# Dependencies and generated outputs (no runtime selected yet)
+# Local PoC configuration
+/extension/config.local.json
+
+# Dependencies and generated outputs
 node_modules/
 dist/
 build/

@@ -1,0 +1,17 @@
+{
+  "name": "yubinbox-inboxsdk-poc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@inboxsdk/core": "2.2.24"
+  }
+}
