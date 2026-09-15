@@ -2,197 +2,89 @@
 
 ## 現在の結論
 
-### Reply未登録時のGmail native fallback
+2026-09-15時点で、Firefox実機のInboxSDK／Reply routing PoCは成立しています。以下の実機結果は利用者の報告に基づきます。InboxSDKを使って次工程へ進める状態ですが、実送信の完成や全Firefox環境での動作保証を意味しません。
 
-仕様簡素化により、sourceRecipientEmailsが取得できて登録一致0件ならGmail nativeへauto fallbackします。Identityオブジェクトを生成せずsendingIdentity=null、transport=gmail、reason=no-yubinbox-identity-match、確認表示必須・read-onlyとします。1件一致は登録定義に従い、取得不能／複数一致はmanual-requiredです。New／Forwardには変更なし。過去の「autoには必ずIdentity登録が必要」という結論はこの仕様変更で置き換えられます。
+- `@inboxsdk/core@2.2.24`は最小Firefox shimでロード成功。Compose検出とNew／Reply／Forwardのmodeを実機確認済み。
+- 三点メニューReplyのsourceはfresh pending、下部Replyは同一ThreadViewの最後のMessageViewで取得できる。
+- 登録独自ドメイン宛ReplyはYubinBoxへauto routing。未登録Gmail宛ReplyはGmail nativeへauto fallbackする。
+- GmailアドレスはYubinBox Identityとして登録不要。未登録アドレスからIdentityオブジェクトは生成しない。
+- ReplyとReply Allは区別せず、Gmail Composeが作った宛先・件名・本文を利用する。
+- Gmail内部Message IDはRFC Message-IDではない。公開APIからRFC Message-ID／References／In-Reply-Toは取得できず、取得・生成は未解決。
 
-三点メニュー・下部Replyの実モジュール統合テストも新仕様へ更新しました。未登録Gmail／未登録独自ドメインでもIdentityを生成しない回帰テストを追加。実機は再ビルド後にsending-dataのtransport・identityReason・確認表示情報を確認してください。
+## 実機確認済み事項
 
-### 最新ログによる原因確定と訂正
-
-ローカル設定のidentities未設定、dist/config.jsの登録Identity数0、生成JSとソースの一致を確認しました。添付実機ログではrelatedのvisible宛先はok、fullはtimeoutでした。relatedはcandidates[].visibleRecipientEmailsを表示する独立経路です。sending-dataはcorrelation.sourceRecipientsから生成し、sendingDataのvisibleMatches.length>0という条件により、登録0件では保持済みvisible配列を採用せず、full timeoutから空配列へ進んでいました。前回の「受け渡し時の紛失」という説明だけでは、この実機条件を説明できていませんでした。
-
-修正は、登録一致なしでも補助取得が失敗した場合にvisible配列を表示し、登録0件をno-registered-identitiesとして区別するものです。未登録アドレスからIdentityやtransportを自動生成しません。autoにはローカルidentitiesの登録と再ビルドが必要です。ユーザー設定そのものは変更していません。
-
-既存テストは最終resolverに一致する登録Identityを渡しており、未登録での表示不具合を検出していませんでした。新たにprobe.js／dom-action.js／content.jsを実際に同一VMへ読み込み、source決定からrelated・sending-dataまでを通す4ケース（三点メニュー／下部×未登録／登録あり）を追加しました。SDK境界のみ架空MessageViewを使い、補助APIは実タイムアウト経路を通します。62テスト成功。New／Forwardのコードは変更していません。
-
-### Reply宛先の受け渡し修正
-
-sourceRecipientsの補助取得が失敗した場合に、取得済みvisibleRecipientEmailsが最終resolverで無視され、三点メニューのコピー処理でも落ちる経路を修正しました。同一source MessageViewから取得した配列を明示的に保持し、最終登録Identity照合でもvisibleを優先します。Message IDからの再探索は追加していません。収集時と最終判定時で登録情報が異なるケースを含む回帰テストで再現・修正を確認しましたが、実機症状との一致と修正後動作は再確認が必要です。
-
-既存55件を含む58テスト成功。三点メニュー／下部Replyで同一インスタンスを使用すること、補助取得失敗・timeoutでもvisible単一一致を維持することを検証しました。source優先順位・TTL・consume-once・New／Forwardの処理は変更していません。
-
-### Reply実機不具合修正（2026-09-15、最新）
-
-実機では元MessageViewのvisible recipient emailsが取得できてもgetRecipientsFull()のtimeoutでIdentityが未決定となっていました。Identity判定はvisible優先へ変更し、単一登録Identity一致ならauto・read-only確認表示とします。0一致時だけfullを補助取得、不明または複数一致はmanual-requiredです。Gmail／YubinBoxは登録定義のtransportで決定します。
-
-fresh pendingがないreplyでは、ComposeのThread IDと一致する単一ThreadViewの最後のMessageViewをsource=thread-bottom-replyとして採用します。fresh pendingは上書きしません。Thread不明・複数一致・Message ID取得失敗時はsource未確定です。New／Forwardでは探索しません。本文・件名・宛先DOM解析やRFCヘッダーは追加していません。
-
-既存48件を含む55テスト成功。今回の変更後の実機結果は未確認です。三点メニュー／下部返信でGmail・独自ドメイン宛を比較し、sending-dataのsourceMessage、sourceRecipientEmails、recipientSource、matchedIdentity、transportを確認してください。過去のfull必須・下部fallback未対応の記録は履歴です。
-
-### 共通送信データ・Identity整理（2026-09-15、最新方針）
-
-Reply／Reply Allは同じreplyに統合します。isForward=trueを優先してforward、isForward=falseかつisReply=trueならreply、それ以外はnewです。Gmail ComposeのTo/Cc/Bcc・件名・本文text/HTMLをそのまま使います。newでは保存後のThread IDも返信元と解釈せず、reply-source探索をskipします。
-
-Replyは三点メニュー等で相関した元MessageViewのgetRecipientsFull()と登録Identityを照合し、1件一致ならauto・送信元確認表示必須・通常変更不可。元メール不明、複数一致、Bcc等で受信先が見えない、タイムアウト等はmanual-requiredです。New／Forwardはmanual選択。Identityはid/address/transportを保持し、登録定義からgmail/yubinboxを決めます。アドレス末尾で推測しません。
-
-三点メニューの単一一致・5秒TTL・consume-onceは維持し、sourceMessageはSDK内部Message IDとmessage-menuを保持します。ForwardではisReply=trueでも相関を成立させず候補を消費します。下部Replyは既存の単一包含候補をthread-bottom-replyとして利用できますが、最後のMessageViewを選ぶ方式は未対応です。現在の属性一致だけでは末尾ボタンと個別Replyを安全に区別できないためです。
-
-共通データと確認表示用状態を追加しました。RFC reply headersは含めず、内部Message IDをRFC Message-IDとして使いません。UI・Gateway・SMTP送信は未実装です。既存exactReplyTargetのunsupported診断は維持しています。
-
-ローカル48テスト成功。mode、登録Identityの単一／複数／不明判定、transport、手動選択、Forward誤相関防止、新規探索skip、Bcc保持を検証しました。今回の共通データとIdentity自動判定はFirefox実機未検証です。
-
-実機ではローカルIdentityを設定して再ビルド・再読み込みし、new／Reply／Reply All／Forwardの[sending-data]を確認してください。三点メニュー起点のsourceMessageと送信元を照合し、複数Identity宛・未登録宛のmanual-required、Forwardのcorrelated=false、newのrelated探索skipを確認します。過去のReply All専用判定の調査記録は履歴として残します。
-
-### 下部Reply pending診断
-
-利用者の実機報告では、三点メニュー経由で1通目・2通目それぞれのSDK Message IDとReply Composeの相関に成功しました。下部返信はisReply=trueでもpendingTarget=nullでした。実メールの内部IDそのものは本書へ記録しません。
-
-今回、既存のReply／返信の属性完全一致とBUTTON／role=buttonを満たすコントロールを下部Reply候補として追加しました。位置を推定するselector、本文・表示テキスト・任意data値の読み取りはありません。SDK MessageView.getElement()との包含一致のみを使います。単一一致・SDK ID取得成功ならsource=bottom-replyで既存pendingへ保存し、0件・複数件ならstored=falseとmatchCount・理由を出します。5秒TTL、使い捨て、Reply Compose限定、exactReplyTarget.status=unsupportedは維持しています。
-
-下部ボタンが実際にMessageView配下にあるかは未検証です。再ビルド・再読み込み後に下部返信をクリックし、`[dom-pending-target]`のsource／matchCount／storedと`[dom-compose-correlation]`を確認してください。ログが出ない場合は属性完全一致・button条件を満たしているか既存dom-clickで確認します。0件の場合、最後のメールを自動選択しません。三点メニュー経由の回帰確認も行ってください。
-
-ローカル自動テストは既存33件と追加2件の計35件が成功しました。単一／0件／複数一致、bottom sourceのTTL・使い捨て、Reply All／Forward／menuitemの非対象を検証しています。
-
-### 三点メニュー起点とReply Composeの時間的相関PoC
-
-「その他のメッセージ オプション」BUTTONとSDK MessageView要素の包含一致を使い、単一候補のSDK内部Message IDをクリック時刻から5秒だけ相関対象にします。0件・複数件は保持せず、次の新規Composeで一度だけ消費します。Reply判定true・期限内・ID取得成功時のみ別診断`[dom-compose-correlation]`を出力します。保持状況は`[dom-pending-target]`です。ID取得とCompose検出の非同期順序も考慮しています。
-
-既存のexactReplyTarget.status=unsupportedは維持します。メニュー項目の文字列を読んだり、Reply All／Forward判定を追加したりはしていません。isReplyがtrueでもReply Allを除外できず、時間的相関は返信元の証明ではありません。実機検証は未実施です。古いメール／最新メールの三点メニューから5秒以内のReply、5秒超のReply、2回目Composeへの非再利用を確認してください。
-
-### 限定DOM helper追加
-
-Exact Reply Target調査専用のDOMクリック観測を追加しました。本番依存・送信判定としては未採用です。実機ではまだ未検証です。SDKのみの取得制約については下記の結論を維持します。
-
-documentのcapture・passive clickから最大8階層を調べ、aria-label／titleが英語または日本語の返信操作名と完全一致した場合だけ診断します。SDK MessageView.getElement()との包含関係がある場合、SDK由来のmessage ID・thread IDを取得し、既存same-thread候補との照合材料として出します。isLoaded、DOM IDの文字列一致、class名、最新メール順序からは推定しません。単一候補もmediumに留め、複数候補はlow、Exact Reply Targetはunverifiedです。
-
-メール本文・宛先・件名はDOMから読みません。任意のaria／title／data属性値は出さず、既知操作名の分類と限定した識別属性の存在だけを出します。ラベルなし操作・別言語・別階層のメニューへの対応は制限があります。右上メニューも認識できるラベルがあればログを出しますが、候補なしの場合に前のクリックから推定する処理はありません。
-
-実機確認：diagnosticOutputをtrueにして再ビルド・再読み込み後、複数メールthreadの古い／最新メールで下部ボタンと右上メニューのReply／Reply All／Forwardをそれぞれ試します。`[dom-action]`のcandidateMatchesを`[related]`のSDK IDと照合し、候補なし／複数候補も記録してください。Composeとの紐付けや操作完了を証明するログではありません。SDK getterの失敗はstatusに残し、エラー文は出しません。
-
-### 返信元情報PoCの追検証（2026-09-14）
-
-利用者のFirefox実機報告で、新規Compose、Reply判定、To／Cc／Subject、本文text／HTML、Gmail Thread ID・Draft ID、同一threadのMessageView候補、Sender、元メール宛先に含まれる独自ドメインアドレスの取得が確認できました。以下はその報告と公開API調査を分けた整理です。今回追加した診断フィールドの実機確認はまだです。
-
-| 分類 | 項目 | 根拠・制約 |
+| 項目 | 現在の結果 | 使用API・手段／制約 |
 | --- | --- | --- |
-| InboxSDKだけで取得可能（実機報告） | 上記Compose値・内部ID・同一thread候補・Sender・元メールの統合宛先 | 実行条件全般の保証ではない。受信Identityの自動確定はしていない。 |
-| 現行公開APIでは取得不能 | Exact Reply Target | Composeと特定のMessageViewを対応付ける公開getterなし。複数候補の順序・最新・宛先・表示状態からは選ばない。候補1件でも確定しない。 |
-| 現行公開APIでは取得不能 | RFC Message-ID／References／In-Reply-To | core 2.2.24の公開ComposeView／MessageView APIに取得メソッドなし。内部IDを転用しない。 |
-| 現行公開APIでは取得不能 | ReplyとReply Allの直接区別 | `isReply()`はReply All専用フラグではない。宛先人数からは推定しない。 |
-| 現行公開APIでは取得不能 | 元メールのTo／Cc別リスト | `getRecipientsFull()`はTo／Cc／Bccの統合リスト。Compose自身のTo／Ccとは区別する。 |
-| まだ未検証 | Forward実機・今回の制約診断JSON | `isForward()`と既存の宛先・件名・本文・thread getterを利用。nullを補完しない。 |
+| FirefoxでのSDKロード | 確認済み | `InboxSDK.load(2, appId, options)`、isolated world内の最小runtime shim。 |
+| Compose検出 | 確認済み | `Compose.registerComposeViewHandler`。 |
+| New／Reply／Forward mode | 確認済み | `isForward()`優先。trueならforward、falseかつ`isReply()`がtrueならreply、それ以外new。 |
+| Reply識別 | 確認済み | Reply Allもreply。人数から専用modeを推定しない。 |
+| To／Cc／Bcc | 取得確認済み | `getToRecipients()`／`getCcRecipients()`／`getBccRecipients()`。 |
+| Subject | 取得確認済み | `getSubject()`。Re:やFwd:を追加しない。 |
+| Body text／HTML | 取得確認済み | `getTextContent()`／`getHTMLContent()`。Gmailの内容をそのまま保持。 |
+| 変更イベント・スナップショット | 確認済み | 宛先・件名・本文・下書き保存イベントからJSON出力。全書式・全操作の網羅確認ではない。 |
+| Gmail内部Thread ID／Draft ID | 取得確認済み | `getThreadID()`／`getCurrentDraftID()`。new開始時は空で、保存後に付く場合がある。 |
+| 元メール・スレッド関連 | 確認済み | `getThreadIDAsync()`／`getMessageViewsAll()`／`getMessageIDAsync()`。 |
+| 元メールSender | 取得確認済み | `getSender()`。 |
+| 元メール宛先 | visible取得確認済み | `getRecipientEmailAddresses()`。fullはtimeout実績あり、必須にしない。 |
+| 三点メニューReply source | 確認済み | 単一MessageView包含、fresh pending、5秒TTL、consume-once。 |
+| 下部Reply source | 確認済み | fresh pendingなしのreplyで同一ThreadViewの最後を採用。 |
+| Reply Identity routing | 確認済み | 登録独自ドメイン→yubinbox、未登録Gmail→gmail native、いずれもauto。 |
+| RFC Message-ID／References／In-Reply-To | 公開APIでは取得不可 | core 2.2.24の公開getterなし。取得・生成・実送信検証は未対応。 |
 
-#### 調査根拠と採用しなかった経路
+実機routingの確認結果（個人アドレスは再掲せず、ケースで記録）：
 
-[Compose公式API](https://inboxsdk.github.io/inboxsdk-docs/compose/)と[Conversations公式API](https://inboxsdk.github.io/inboxsdk-docs/conversations/)、固定パッケージの`src/platform-implementation-js/views/compose-view.d.ts`・`views/conversations/message-view.d.ts`を照合しました。`getInitialMessageID()`は既存ドラフトの初期IDであり返信元のIDではありません。
+| ケース | sendingIdentity／matchedIdentity | transport | identityResolution／identityReason | 確認表示用状態 |
+| --- | --- | --- | --- | --- |
+| 登録独自ドメイン宛Reply | 登録Identity | yubinbox | auto／single-registered-recipient-match | required=true、readOnly=true、selectionAllowed=false |
+| Gmail宛Reply・Gmail Identity未登録 | null | gmail | auto／no-yubinbox-identity-match | required=true、readOnly=true、selectionAllowed=false、address=null |
 
-配布ソースマップのMessageView実装も確認しました。型定義に残る`hasOpenReply()`はAPI version 1終了後に廃止され、現在の`load(2, ...)`では例外になります。呼び出しません。`getTargetMessageID()`は内部Gmail Compose driver、`getRfcMessageIdForSyncMessageId`は内部driver helperです。公開APIではないため呼び出し・importとも行いません。DOMやGmail APIにも切り替えていません。
+現在63テスト成功。Reply source決定→recipient取得→sending-data生成を、実PoCモジュールを組み合わせて通すテストがあります。三点メニュー／下部Replyそれぞれの登録あり・未登録fallback、取得失敗・複数一致、New／Forward回帰を検証済みです。今回のドキュメント同期ではテストを再実行していません。
 
-#### JSONの意味
+## 現在のReply routing仕様
 
-`[snapshot]`の`exactReplyTarget`、`mode.replyVsReplyAll`、`rfcHeaders`、`[related]`の`exactReplyTarget`・`rfcHeaders`と候補ごとの`rfcHeaders`は、未提供の公開APIについて`{api: null, status: "unsupported", value: null, attempted: false, reason: "..."}`を記録します。利用できるgetterがないため実API呼び出しはしていません。呼び出して失敗したという結果や、値を取得できたという結果にはしません。
+1. Forwardを先に除外する。New／Forwardは返信元探索をせず、Identityはユーザー選択予定（manual）。newに保存後のThread IDが付いても返信元と解釈しない。
+2. Replyはfresh pending targetを優先する。三点メニューで単一MessageViewに包含されるクリックを採取し、source=`message-menu`、5秒TTL、次Composeで一度だけ消費する。
+3. fresh pendingがなければ、ComposeのThread IDと一致する単一ThreadViewの最後のMessageViewを使い、source=`thread-bottom-reply`とする。Thread不明・複数・ID取得失敗時はsourceを推測しない。
+4. 決定した同じMessageViewからvisible recipient emailsを取得し、登録Identityと照合する。getRecipientsFull()は補助であり、visibleの単一一致をtimeoutで失敗扱いにしない。
+5. 登録YubinBox Identityに1件一致なら、そのIdentityと定義済みtransportでauto（通常yubinbox）。取得済み宛先に0件一致ならsendingIdentity=null・transport=gmail・auto・reason=no-yubinbox-identity-match。宛先取得不能（空リスト含む）または複数一致ならmanual-required。
 
-候補ごとの`originalTo`／`originalCc`にも取得不能理由を記録します。`receivingIdentityCandidates`は`getRecipientsFull()`で取得した統合宛先を根拠として持ち、`selectedIdentity: null`です。独自ドメインや登録済みIdentityとの照合設定は追加していません。他の受信者を利用者本人とみなさず、正確な返信元が未確定である点も維持します。
+自動決定時は送信元確認表示を必須・read-onlyとし、通常の選択を増やしません。Gmail nativeではIdentityを生成せずaddress=nullです。ドメイン末尾からtransportを推測しません。ComposeのTo/Cc/Bcc/Subject/bodyText/bodyHtmlを再構築しません。
 
-#### 次のFirefox実機操作
+現在はPoC専用のconfig.local.jsonのidentitiesへYubinBox Identityを登録します。Gmailアドレスの登録は不要です。将来の管理元はGatewayで、拡張はAPIから一覧を取得する想定です。Gateway URL／API Tokenは将来の拡張設定画面で変更可能にし、本番で設定変更のたびに再ビルドする設計にはしません。
 
-1. `diagnosticOutput: true`で再ビルドし、拡張とGmailを再読み込みする。
-2. テスト用の複数メッセージthreadで、最新メールと古いメールそれぞれからReplyを開く。編集イベントで`[snapshot]`／`[related]`を取得し、候補が複数でもexact targetが推定されないことを確認する。
-3. 同じ元メールからReply Allを開く。画面で選んだ操作を手元で記録し、ComposeのTo／Cc、候補Sender・統合宛先・Identity候補を比較する。Reply Allフラグと元To／Ccがunsupportedのままであることを確認する。
-4. 元メールの折りたたみ／展開、返信のポップアウト、既存ドラフト再開を試す。取得不足時はstatusを記録する。
-5. Forwardを開き、`mode.isForward`、To／Cc、Subject、bodyText／bodyHTML、thread IDを比較する。RFC項目はどのケースもunsupported・nullであることを確認する。送信は不要。
+## 現在の制約
 
-以下の初回PoC記録の「未確認」は初回時点の記録です。最新の判定は上表を参照してください。
+- Gateway、SMTP送信、管理UI、完成版拡張UI、Gateway URL／Token設定UIは未実装。New／Forwardの選択UI、Reply確認表示UIも未実装で、表示用状態まで保持する。
+- RFCヘッダー取得・生成、Gmail／Thunderbird等での実SMTP threading、Archive BCC実送信は未検証。
+- 公開APIのCompose→特定MessageView直接対応は提供されない。現在のsourceはDOM起点とGmail UIの意味によるPoC上の解決であり、公開APIのexactReplyTarget診断のunsupportedとは区別する。
+- 元メールのvisible宛先は省略される場合がある。getRecipientsFull()は統合宛先で元To／Cc別情報を保証せず、timeout実績がある。
+- DOM helperは限定診断PoC。本文・件名・宛先DOM、任意data属性値を解析しない。GmailのUI変更やポップアウトなどの詳細条件は継続確認が必要。
+- 詳細ログと送信状態生成はdiagnosticOutput=true時のみ。App ID・Token・SMTP認証情報やSDKオブジェクトは出力しない。実メールログはコミットしない。
+- Firefoxの実行バージョン等の詳細環境は未記録。別環境の網羅検証や添付ファイル対応は完了していない。
 
-**利用者のFirefox実機報告では、SDK初期化・Compose検出・変更イベントまで成功しています。** 今回追加したイベント別自動スナップショットの値・関連候補は実機で未確認で、InboxSDK採用判断は保留です。APIの存在、イベント発生、実際の値の取得成功を区別します。Alt＋Shift＋Yは反応しなかったとの報告があり、今回は修正・調査せず自動取得で検証します。
+## 過去の検証履歴
 
-調査日：2026-09-14。対象：`@inboxsdk/core@2.2.24`、API version：`2`。npmの`gitHead`：`ec7ea453503a081061a573e97ad0cd32d415f864`。Firefox 128以上を想定していますが、実行バージョンは未記録です。
+以下は当時の結果です。現在仕様は上記に集約し、旧結論は置き換え済みです。
 
-## 実機の結果表
+| 段階 | 当時の結果・対応 | 現在の扱い |
+| --- | --- | --- |
+| 初期SDK PoC | Firefox未確認、InboxSDKを第一候補として検討。 | 最小shimでロード・Compose取得を実機確認し、次工程へ進める。 |
+| SDKロード調査 | pending／window.chrome.runtimeのTypeErrorを調査。 | isolated worldの実runtime参照を補うshimで成功。注入方式・バージョンは維持。 |
+| ショートカット・Console | Alt+Shift+Yが反応せず、groupの見出しだけ見える問題を調査。 | 自動イベント取得とprefix＋JSONの単一ログへ変更。ショートカットは修正対象外のまま。 |
+| 公開API調査 | Exact Reply Target・RFC headers・Reply All専用判定を調査。 | RFC未対応は残る。Reply Allを区別せず、sourceは限定DOM／ThreadViewで解決。 |
+| DOM起点調査 | 下部ボタンの単一包含ではsourceを得られず、最後のMessageView方式は未対応だった。 | 三点メニューpending優先、下部は最後のMessageView fallbackを実装・実機確認済み。 |
+| Identity初期判定 | full取得を必須とし、timeoutで判定不能になった。 | visible優先へ変更。fullは補助。 |
+| 受け渡し調査 | relatedは宛先ありだがsending-dataが空。登録0件時にvisibleを不採用とする経路を確認。 | 宛先と登録一致を区別し、統合テストを追加。 |
+| Gmail routing簡素化前 | 未登録はmanual-required、autoには登録必須としていた。 | 未登録の取得済み宛先はGmail nativeへauto。Gmail Identity登録不要。両transportの実機成功を確認。 |
 
-結果は「取得可能／条件付き／取得不可／未確認」で記入します。使用API欄は実装した呼び出しであり、成功実績ではありません。
+当時のパッケージ調査ではAPI version 2、gitHead `ec7ea453503a081061a573e97ad0cd32d415f864`を照合しました。getInitialMessageID()はドラフトの初期IDで返信元ではありません。hasOpenReply()はAPI version 2で廃止、内部driverのgetTargetMessageID()やRFC ID helperは公開APIでないため採用していません。第三者著作権・ライセンス原文とSDK配布バンドルを保持しています。
 
-| 項目 | 結果 | 使用API・手段 | 備考 |
-| --- | --- | --- | --- |
-| FirefoxでのSDK読み込み | 取得可能（利用者報告） | `InboxSDK.load(2, appId, options)` | Firefox shim適用後に初期化成功。環境全般の互換性保証ではない。 |
-| Compose検出 | 取得可能（利用者報告） | `Compose.registerComposeViewHandler` | 再作成・複数Composeの詳細条件は未確認。 |
-| Reply識別 | 未確認 | `isReply()`、`isInlineReplyForm()`、`isForward()` | 新規・返信・転送を区別。 |
-| Reply Allとの差 | 未確認 | `getToRecipients()`、`getCcRecipients()`の比較 | 専用判定APIは未発見。操作は人間が記録。 |
-| To | 未確認 | `getToRecipients()` | 表示名・複数宛先・確定前後。 |
-| Cc | 未確認 | `getCcRecipients()` | Ccなし・追加・削除。 |
-| Subject | 未確認 | `getSubject()` | イベントごとの取得値を比較。 |
-| Body | 未確認 | `getTextContent()`、`getHTMLContent()` | 引用・署名・書式も比較。 |
-| 編集後の値 | 未確認 | `recipientsChanged`、`bodyChanged`、`subjectChanged`、`responseTypeChanged`、`draftSaved` | 変更イベント発生は利用者報告あり。値は未確認。同種類ごとに500msデバウンス。 |
-| 元メール・スレッド関連 | 未確認 | Composeの`getThreadID()`、ThreadViewの`getThreadIDAsync()`／`getMessageViewsAll()`、MessageViewの`getMessageIDAsync()` | 同じスレッドの候補のみ。正確な返信対象は未確定。 |
-| 元メールの宛先 | 未確認 | MessageViewの`isLoaded()`、`getRecipientEmailAddresses()`、`getRecipientsFull()` | 宛先統合リスト。元To／Cc区分・転送前宛先は保証しない。 |
-| 現在のDraft関連ID | 未確認 | `getCurrentDraftID()` | Gmail内部ID。空の下書きではnull等の可能性。 |
-| RFC Message-ID | 未確認 | 公開getterは未発見。`not-collected`を出力 | Gmail内部Message IDを転用しない。 |
-| References | 未確認 | 公開getterは未発見。`not-collected`を出力 | 参照列を推測で組み立てない。 |
-| In-Reply-To | 未確認 | 公開getterは未発見。`not-collected`を出力 | 正確な返信対象のRFC Message-ID取得も未解決。 |
+## 今後の確認事項
 
-## コード・パッケージから確認したこと
+PoCの初回ロード確認には戻らず、送信API契約、Gateway最小実装、拡張設定UIを次工程候補とします。現在のrouting仕様を基に、認証・Identity一覧・本文形式・エラー／重複送信の扱いを設計します。
 
-- npm版は`inboxsdk.js`、`pageWorld.js`、`background.js`、型定義、ソースマップを配布する。SDKのUMDバンドルを同梱するため、本PoCにバンドラーは不要。
-- SDK loaderは`inboxsdk__injectPageWorld`メッセージをbackgroundへ送る。配布版はMV2注入フォールバックが除去されている。PoCはFirefoxのbackground scriptで受け、MAIN worldへの注入完了／失敗を返す。
-- 表のCompose／ThreadView／MessageView APIは配布版の型定義・実装と照合した。Reply All専用判定、正確な返信元を返すCompose getter、RFCヘッダーgetterは今回の公開API調査では見つからなかった。
-- `getRecipientsFull()`は非同期。未ロードのメールはスキップし、失敗・タイムアウトを他の項目と分ける。
-- SDKの既定ではイベント追跡・グローバルエラーログが有効。PoCは両オプションをfalseにするが、SDK内部の明示的なエラー報告を含む全通信を止めるものではない。
-- npmアーカイブには独立したLICENSE／COPYRIGHTファイルがなかったため、同じ`gitHead`の公式リポジトリから原文を追加した。SDKバンドルとマップも改変せずコピーする。
-
-## ローカルで実施した検証
-
-Windows、Node.js `v24.19.0`で`extension/`の`npm test`を実行し、26テストが成功しました。DOM helperについて無効時の無出力・操作分類・属性sanitization・本文非参照・複数候補の未確定を追加検証しました。
-
-利用者報告では詳細出力を有効にしたイベント見出しは表示されましたが、展開しても本文が見えませんでした。従来はprefix付きグループとprefixなしJSONを別ログにしていたため、Consoleの文字列フィルターでJSONが除外され得ます。今回はprefixとJSONを同一ログに変更しました。実機での原因確定・修正後の表示確認は未実施です。明示フィールドへの変換、null／undefined、循環参照やtoJSONを持つ取得値、余分な資格情報フィールドの除外をローカルテストで確認しました。
-
-- 一部getterの例外でも他項目を取得し、編集後に再読み取りする。
-- 宛先数からReply Allと判定せず、内部IDをRFCヘッダーへ入れない。
-- 未提供API・空値・拒否・タイムアウトを区別する。
-- 無関係なスレッドや未ロードのメールを返信元として読まない。
-- backgroundがGmailの要求元フレームに限定して注入し、失敗を返す。
-- 複数Composeを別々に記録し、手動取得と破棄後の後片付けを行い、送信フックを登録しない。
-- `detected`と対象の4変更イベントで基本情報・関連候補を取得し、Compose連番・revision・reasonで対応付ける。異なるイベントが互いの待機出力を取り消さない。
-- `diagnosticOutput`がbooleanのtrueの場合だけ取得・出力する。falseや文字列ではメールgetterを呼ばず、ビルドも明示設定だけを有効にする。
-- 一時ディレクトリの架空設定でビルドし、設定なしでは失敗する。生成JSの構文、SDKとライセンス原文のバイト一致を確認する。
-
-ビルドテストのApp IDは構文検証用の架空値で、SDKを起動していません。登録済みApp IDでのビルド・実機検証の代わりにはなりません。
-
-## 人間による再現手順
-
-準備と読み込みは[extension/README.md](../extension/README.md)に従います。
-
-1. Firefoxバージョン、OS、Gmail言語、個人／Workspace、会話表示設定、他のGmail拡張の有無、日時を記録する。メールアドレス・App IDは記載不要。
-2. consoleでSDK読み込み完了を確認する。失敗／30秒待機の場合はロード段階の結果として記録し、Compose項目を成功扱いしない。
-3. ローカル設定の`diagnosticOutput`をtrueにして再ビルド・拡張とGmailを再読み込みする。新規Composeに架空To／Cc・件名・本文を入力し、`detected`と各変更イベントの出力を比較する。`draftSaved`も待って確認する。Cc追加・削除、HTML／プレーンテキスト、署名・引用文も確認する。関連情報は同じCompose連番・revision・reasonの追加グループを見る。
-4. Composeを2つ開いて異なる内容を入力し、連番と値の対応を確認する。1つを閉じ、残ったComposeだけが記録されるか確認する。
-5. ToとCcを含む既存の検証用メールを展開し、返信と全員に返信を別々に操作する。画面で選んだ操作を記録し、`isReply`と宛先、スレッド候補を比較する。宛先人数から返信モードを判断しない。
-6. 同じスレッドの古いメールへの返信も試し、候補一覧が返信対象を一意に示すかを照合する。折りたたみ／展開、ポップアウト、返信件名編集も比較する。
-7. 独自ドメイン宛から転送されたテストメールで元アドレスが宛先に残るか確認する。表示されない場合、Identity判定可能とはしない。
-8. 元メールの「メッセージのソースを表示」でRFCヘッダーを人間が確認し、Gmail内部IDとは別物であることを照合する。References／In-Reply-Toが元メールにないケースと、返信チェーンに含まれるケースを区別する。元メールのIn-Reply-Toは新しい返信に設定する値と同一とは限らない。生メールのダウンロード・コミットは不要。
-9. 結果表に状況・API・条件を記入する。手動でRFCヘッダーが見えても、PoCが自動取得できたとは記録しない。SDK自身の通信・エラーや権限についても観察する。
-
-実メール送信は不要です。Gmailの下書きは通常どおり保存されるため、不要な下書きは検証後に利用者が削除してください。
-
-### 記録用テンプレート
-
-```text
-日時 / OS / Firefox:
-SDKパッケージ / consoleのloader・implementationバージョン:
-Gmail言語 / 個人・Workspace / 会話表示 / 他の拡張:
-ケース: 新規 / Reply / Reply All / 古いメールへの返信 / 複数Compose
-PoC compose連番・revision:
-画面で行った操作:
-一致した項目 / 一致しなかった項目:
-未取得項目のstatus / 追加条件:
-匿名化した所見（本文・宛先・内部ID・App IDは貼らない）:
-```
-
-## 次の判断
-
-登録済みApp IDでSDK読み込みと新規Composeの宛先・件名・本文を1件確認し、その後に返信・全員に返信・元メール情報を確認します。ロード自体が失敗した場合はFirefox互換性の切り分けが最優先です。
-
-返信用RFCヘッダーと正確な返信元は未解決です。採用判断・送信API契約を確定せず、実測後に必要最小限の追加検証を別Issue候補として整理します。
+RFCヘッダー取得・生成の方法を別途決め、実SMTP送信でGmail／Thunderbird等のthreadingとArchive BCCを検証します。送信元確認UI、New／Forward選択UI、URL／Token設定UI、管理経路も未実装として計画します。手順は[開発計画](development-plan.md)、PoCの再現方法は[拡張README](../extension/README.md)を参照してください。
 
 ## 確認した一次資料
 

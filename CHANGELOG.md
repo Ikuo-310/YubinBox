@@ -4,7 +4,16 @@
 
 ## [Unreleased]
 
-### Added
+### 現在の到達点（2026-09-15）
+
+- Firefox実機でInboxSDK 2.2.24、New／Reply／Forward、Reply sourceとIdentity routingを確認済み。
+- 登録独自ドメインReplyはyubinbox、取得済み宛先の未登録Replyはgmail nativeへauto fallback。Gmail Identity登録不要で、未登録Identityは生成しない。
+- 63 tests pass。三点メニュー／下部Replyの登録あり・未登録fallback、New／Forward回帰を確認。
+- Gateway・SMTP・UI・RFCヘッダー・Archive BCC実送信は未実装／未検証。
+
+### Added（開発履歴）
+
+以下は各追加時点の記録です。古い未確認状態、下部包含だけの診断、full依存、登録必須の方針は現在の到達点で置き換え済みです。
 
 - Replyの取得済み宛先が登録Identityに一致しない場合、Identityを生成せずGmail nativeへauto fallback。確認表示はread-only、New／Forwardは従来どおり。
 
@@ -38,4 +47,4 @@
 - ローカル設定、秘密情報、永続データ、生成物を対象とする`.gitignore`。
 - GNU AGPL v3の標準`LICENSE`全文と、`AGPL-3.0-only`の適用指定、第三者の著作権・ライセンス表示を保持する方針。
 
-初期整備では機能実装・依存導入を行わず、その後、読み取り専用の拡張PoCを追加しました。Gateway・送信機能は未実装で、Firefox／Gmailでの実測と本実装の技術スタック選定は未完了です。
+初期整備では機能実装・依存導入を行わず、その後、読み取り専用の拡張PoCを追加しました。Firefox／GmailのPoCとReply routingの実測は完了しています。Gateway・送信機能は未実装で、本実装の技術スタック選定と実SMTP検証は今後の工程です。

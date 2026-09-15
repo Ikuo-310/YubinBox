@@ -8,9 +8,11 @@ Gmail Webの外部SMTPを利用した「Send mail as」機能終了への対応�
 
 ## 現在の状態
 
-開発初期段階です。設計ドキュメントと、Firefox＋InboxSDKによる読み取り専用の拡張PoCがあります。PoCはローカルテスト済みですが、Firefox／Gmailでの動作は未確認です。Gateway、送信機能、Dockerイメージ、管理UIはありません。本実装の言語・フレームワーク・データベースも未選定です。
+Firefox実機でInboxSDK 2.2.24の拡張PoCとReply routing PoCが成立しています。最小Firefox shimでSDKロード・Compose検出に成功し、New／Reply／Forward、宛先・件名・本文・Gmail内部IDを確認済みです。現在63テスト成功。Gateway、SMTP送信、管理UI、完成版拡張UI、Gateway URL／Token設定UIは未実装です。
 
-最初の対象ブラウザは**Firefox**です。Gmail連携には**InboxSDKを第一候補として検討**していますが、Firefoxでの動作や取得できる情報は未検証です。採用は小さなPoCの結果を見て判断します。
+Reply／Reply Allは区別せず、Gmail ComposeのTo/Cc/Bcc・Subject・本文をそのまま使います。登録独自ドメイン宛ReplyはYubinBoxへauto routing、取得済み宛先が未登録のReplyはIdentityを生成せずGmail nativeへauto fallbackします。Gmailアドレス登録は不要です。自動決定時は送信元確認表示を必須・read-onlyとし、取得不能・複数一致だけ手動fallbackします。New／Forwardはユーザー選択予定で、UIは未実装です。
+
+最初の対象ブラウザはFirefoxです。InboxSDKを次工程の基盤として進めますが、全環境の互換性や実送信まで確認したわけではありません。Gmail内部Message IDはRFC Message-IDではなく、RFCヘッダー取得・生成、実SMTP threading、Archive BCC実送信は未解決です。
 
 ## コンポーネント
 
@@ -33,6 +35,8 @@ SMTP認証情報はGatewayだけが保持し、拡張へ渡しません。Gmail 
 
 拡張では設定されたベースURL（例：`https://yubin.example.com`）と固定APIパス（想定：`/api/send`）を組み合わせます。ホスト名をハードコードしません。
 
+現在のIdentity登録はPoC用のconfig.local.jsonです。将来はGatewayを管理元とし、拡張はAPIから一覧を取得します。Gateway URL／API Tokenは拡張設定画面で変更可能にし、本番で設定変更のたびに再ビルドする方式にはしません。
+
 ## リポジトリ構成
 
 ```text
@@ -53,7 +57,7 @@ YubinBox/
 
 ## 次の開発ステップ
 
-[拡張README](extension/README.md)の手順でPoCをFirefoxへ読み込み、Compose／Replyの検出、本文・宛先取得、返信に必要な元メール情報の取得範囲を確認します。[検証結果表](docs/inboxsdk-poc-results.md)の実機項目は未確認です。このPoCではSMTP送信を実装しません。
+次工程候補は送信API契約、Gateway最小実装、拡張設定・送信元確認UIです。[検証結果](docs/inboxsdk-poc-results.md)に実機確認済み事項と制約を整理しています。再現手順は[拡張README](extension/README.md)を参照してください。
 
 設計の詳細は[アーキテクチャ](docs/architecture.md)、未決定事項と以降の順序は[開発方針](docs/development-plan.md)、変更履歴は[CHANGELOG](CHANGELOG.md)を参照してください。
 
