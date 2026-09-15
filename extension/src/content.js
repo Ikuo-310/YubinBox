@@ -81,6 +81,14 @@
     if (views.has(view)) return;
     const state = { label: `compose-${++sequence}`, timers: new Map(), revision: 0, busy: false, listeners: [] };
     views.set(view, state);
+    try { state.stopAttachments = globalThis.YubinBoxAttachments?.start(view, state.label, config.diagnosticOutput); }
+    catch { /* Attachment diagnostics must not affect Compose registration. */ }
+    try { state.stopInlineImages = globalThis.YubinBoxInlineImages?.start(view, state.label, config.diagnosticOutput); }
+    catch { /* Independent inline image diagnostic. */ }
+    try { state.stopDiscard = globalThis.YubinBoxDiscard?.start(view, state.label, config.diagnosticOutput); }
+    catch { /* Independent read-only discard diagnostic. */ }
+    try { state.stopDiscardTest = globalThis.YubinBoxDiscardTest?.start(view, state.label, config.diagnosticOutput); }
+    catch { /* Explicit discard test initialization must not affect routing. */ }
     state.correlation = Promise.resolve(null);
     if (domDiagnostics && config.diagnosticOutput === true) {
       state.correlation = domDiagnostics.correlate(state.label, probe.read(view, 'isReply').value === true,
@@ -146,6 +154,10 @@
       state.listeners.push([event, handler]);
     }
     view.on('destroy', () => {
+      try { state.stopAttachments?.(); } catch { /* Independent diagnostic cleanup. */ }
+      try { state.stopInlineImages?.(); } catch { /* Independent diagnostic cleanup. */ }
+      try { state.stopDiscard?.(); } catch { /* Independent diagnostic cleanup. */ }
+      try { state.stopDiscardTest?.(); } catch { /* Independent diagnostic cleanup. */ }
       for (const timer of state.timers.values()) clearTimeout(timer);
       state.timers.clear();
       for (const [event, handler] of state.listeners) view.removeListener(event, handler);

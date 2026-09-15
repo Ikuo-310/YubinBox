@@ -11,10 +11,10 @@
   },
   "permissions": ["scripting"],
   "host_permissions": ["https://mail.google.com/*"],
-  "background": { "scripts": ["background.js"] },
+  "background": { "scripts": ["config.js", "inline-images.js", "background.js"] },
   "content_scripts": [{
     "matches": ["https://mail.google.com/*"],
-    "js": ["config.js", "inboxsdk.js", "probe.js", "dom-action.js", "content.js"],
+    "js": ["config.js", "inboxsdk.js", "probe.js", "dom-action.js", "attachments.js", "inline-images.js", "discard.js", "discard-probe.js", "content.js"],
     "run_at": "document_end"
   }]
 }

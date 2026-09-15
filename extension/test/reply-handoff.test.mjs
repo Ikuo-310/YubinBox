@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 
-const scripts = await Promise.all(['probe', 'dom-action', 'content'].map(async (name) =>
+const scripts = await Promise.all(['probe', 'dom-action', 'attachments', 'content'].map(async (name) =>
   readFile(new URL(`../src/${name}.js`, import.meta.url), 'utf8')));
 for (const source of ['message-menu', 'thread-bottom-reply']) {
   for (const registered of [false, true]) {

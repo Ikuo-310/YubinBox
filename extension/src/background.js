@@ -4,6 +4,18 @@
 // injection errors are visible rather than acknowledging before execution.
 console.info('[YubinBox PoC][background] started');
 browser.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type === 'yubinbox__inlineBlobDiagnostic') {
+    if (globalThis.YubinBoxPocConfig?.diagnosticOutput !== true ||
+        sender.id !== browser.runtime.id || !sender.tab || !sender.url?.startsWith('https://mail.google.com/') ||
+        typeof message.url !== 'string' || !message.url.startsWith('blob:https://mail.google.com/')) {
+      return Promise.resolve({ success: false, error: 'main-world-unavailable' });
+    }
+    return browser.scripting.executeScript({
+      target: { tabId: sender.tab.id, frameIds: [sender.frameId ?? 0] }, world: 'MAIN',
+      func: globalThis.YubinBoxInlineImages.fetchMetadata, args: [message.url],
+    }).then((results) => results?.[0]?.result ?? { success: false, error: 'main-world-unavailable' },
+      () => ({ success: false, error: 'main-world-unavailable' }));
+  }
   if (message?.type !== 'inboxsdk__injectPageWorld') return undefined;
   console.info('[YubinBox PoC][background] injection request received', {
     gmailTabDetected: Boolean(sender.tab && sender.url?.startsWith('https://mail.google.com/')),

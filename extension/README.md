@@ -92,6 +92,39 @@ npm run build
 
 ## 判定上の制約と診断
 
+### 添付観測（実機未検証）
+
+`diagnosticOutput === true`時のみ、独立した`attachments.js`が
+`[YubinBox PoC][attachments]`＋JSONを出力します。`root`、`observer-installed`、
+`initial-scan`で起動と初期走査を確認できます。添付候補0件でも初期ログを出します。
+`ComposeView.getElement()`は2.2.24の型・実装に存在しますが、実装上は未文書化APIと
+されているため`source=sdk-undocumented`と記録します。
+
+DOM監視は取得したCompose root全体です。`.dL`／`.vI`／`.vJ`は未検証の添付行・名前・
+表示サイズ候補selectorです。`dom-changed`はroot内変更後の再走査で、添付変更の確定通知ではありません。
+`candidateCount=0`は添付不存在を意味しません。本文画像・Driveリンクも網羅しません。
+進捗要素の有無だけではアップロード完了を確定できず、`uploadState`は`unknown`です。
+
+documentのcapture phaseでも`dragenter`／`dragover`／`drop`を`source=document-capture`で記録します。
+有効なComposeがある間、documentごとに1組だけ登録し、最後のCompose破棄時に解除します。
+イベント対象が単一Compose rootに含まれる場合だけcompose連番を記録し、それ以外は
+`compose=null`・`attribution=unattributed`とします。Gmailのイベント処理は変更しません。
+`dataTransferPresent`・`filesLength`・`itemsLength`と各Fileの`name/type/size/lastModified`、
+`instanceofFile/instanceofBlob`をコピーします。File本体を保持せず、内容読み取りメソッドも呼びません。
+実機では新規ComposeへJPEGをD&Dし、`source=document-capture`かつ`reason=drop`のログで確認します。
+File取得の実機成否は未確認で、`instanceofFile=true`も内容読み取り成功を意味しません。
+
+root内の`dragenter`／`dragover`／`drop`／file inputの`change`は従来どおり`source=file-event`で記録します。
+dragoverは500msに1回まで。root外のGmail inputのchangeは観測対象外です。
+イベントのFile一覧は現在の添付一覧とは別で、空のdrag一覧も添付不存在を意味しません。
+File/Blob判定・名前・type・sizeだけをコピーし、内容読み取り・base64化・URL出力はしません。
+`fileObjectObserved=true`はイベントでFileを受け取った意味で、本体読み取り成功やGateway転送成功ではありません。
+
+実機では再ビルド・拡張再読み込み・Gmail再読み込み後に、添付済み下書きを開いて初期ログを確認してください。
+続いて追加・削除、ファイル選択、ドラッグ＆ドロップ、大きめの検証用ファイルのアップロード中を比較します。
+New／Reply／Forward、複数Compose、閉じた後のログ停止も確認します。
+ログと画面の差異はselector／rootの未確認事項として扱い、実機成功の記録に置き換えません。
+
 三点メニューの「その他のメッセージ オプション」BUTTONをSDK MessageView.getElement()の包含で照合し、単一候補をpendingとして保持します。下部ボタンの属性分類診断も残っていますが、最終sourceはfresh pendingなしのreplyで同一ThreadViewの最後を採用します。ForwardではisReply=trueでも相関を成立させません。
 
 DOM helperは診断PoCであり、本文・件名・宛先DOMや任意data属性値を解析しません。未分類クリックは最初の30件だけtagName／role／aria-label／titleと最大8要素の親方向を観測し、資格情報を示す値等は伏せます。診断はdiagnosticOutput=true限定です。
