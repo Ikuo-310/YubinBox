@@ -73,12 +73,14 @@
   function createPendingTracker(log, now = Date.now, readId = (view) => globalThis.YubinBoxProbe.readAsync(view, 'getMessageIDAsync')) {
     const ttlMs = 5000;
     let pendingDomMessageTarget = null;
-    function capture(matches) {
+    function capture(matches, source) {
       // Even a failed/new menu click invalidates the previous candidate.
       pendingDomMessageTarget = null;
       const capturedAt = now();
       const record = { capturedAt, matchCount: matches.length, confidence: 'medium',
-        reason: 'more-options-button-inside-single-message-view' };
+        ...(source === 'bottom-reply' ? { source } : {}),
+        reason: source === 'bottom-reply' ? 'bottom-reply-action-inside-single-message-view'
+          : 'more-options-button-inside-single-message-view' };
       if (matches.length !== 1) {
         log(`[YubinBox PoC][dom-pending-target]\n${JSON.stringify({ ...record,
           gmailMessageId: null, confidence: 'low', stored: false, reason: 'requires-single-message-view' })}`);
@@ -99,20 +101,34 @@
         return valid ? result : null;
       });
     }
-    async function correlate(compose, isReply) {
+    async function correlate(compose, isReply, isForward = false) {
       const pending = pendingDomMessageTarget;
       pendingDomMessageTarget = null; // Any newly detected Compose consumes it.
       const age = pending ? now() - pending.capturedAt : null;
-      const result = isReply === true && pending && age >= 0 && age < ttlMs
+      const result = isReply === true && isForward === false && pending && age >= 0 && age < ttlMs
         ? await pending.ready : null;
       const ageMs = pending ? now() - pending.capturedAt : null;
       const valid = Boolean(result && !pending.view.destroyed && ageMs >= 0 && ageMs < ttlMs);
       log(`[YubinBox PoC][dom-compose-correlation]\n${JSON.stringify({
-        compose, isReply, pendingTarget: valid ? { ...result, ageMs } : null,
+        compose, isReply, isForward, pendingTarget: valid ? { ...result, ageMs } : null,
         correlated: valid, ttlMs,
         reason: valid ? 'temporal-diagnostic-candidate-only-not-exact-reply-target'
           : 'no-fresh-single-target-or-not-reply',
       })}`);
+      // The source view remains private. Only copy public recipient values.
+      let sourceRecipients = { status: 'unavailable', value: [] };
+      if (valid) {
+        const recipients = await Promise.resolve().then(() => globalThis.YubinBoxProbe?.sourceRecipients?.(pending.view, globalThis.YubinBoxPocConfig?.identities))
+          .catch(() => ({ status: 'error' }));
+        sourceRecipients = { status: recipients?.status ?? 'unavailable', recipientSource: recipients?.recipientSource ?? 'unavailable',
+          visibleRecipientEmails: Array.isArray(recipients?.visibleRecipientEmails)
+            ? recipients.visibleRecipientEmails.filter((v) => typeof v === 'string') : [],
+          value: Array.isArray(recipients?.value) ? recipients.value.map((v) => ({
+            name: typeof v?.name === 'string' ? v.name : null,
+            emailAddress: typeof v?.emailAddress === 'string' ? v.emailAddress : null,
+          })) : [] };
+      }
+      return { correlated: valid, pendingTarget: valid ? result : null, sourceRecipients };
     }
     return { capture, correlate };
   }
@@ -192,6 +208,13 @@
           const root = view.getElement();
           if (root === control || root.contains(control)) matches.push({ view, container: metadata(root) });
         } catch { /* No SDK exception contents in DOM diagnostics. */ }
+      }
+      // Only the existing exact Reply label on a button is eligible. This is
+      // a bottom-button candidate, not proof of its position in the thread.
+      // Reply All, Forward and detached menuitems never enter this path.
+      if (action === 'reply' &&
+          (control.tagName === 'BUTTON' || control.getAttribute?.('role') === 'button')) {
+        pending.capture(matches.map(({ view }) => view), 'bottom-reply');
       }
       void Promise.all(matches.map(async ({ view, container }) => {
         const id = await globalThis.YubinBoxProbe.readAsync(view, 'getMessageIDAsync');

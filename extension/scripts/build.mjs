@@ -15,6 +15,14 @@ if (typeof config.appId !== 'string' || !/^sdk_.{5,15}_[0-9a-f]{10}$/.test(confi
   throw new Error('Set a registered sdk_... App ID in config.local.json; placeholders are not accepted.');
 }
 const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const identities = (Array.isArray(config.identities) ? config.identities : []).map((v) => ({
+  id: v?.id, address: v?.address, transport: v?.transport,
+}));
+if (identities.some((v) => typeof v.id !== 'string' || !v.id ||
+    typeof v.address !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(v.address) ||
+    !['gmail', 'yubinbox'].includes(v.transport)) || new Set(identities.map((v) => v.id)).size !== identities.length) {
+  throw new Error('Invalid registered Identity definitions; use unique ids, addresses and gmail/yubinbox transports.');
+}
 const sdkDir = path.join(root, 'node_modules/@inboxsdk/core');
 const sdk = JSON.parse(await readFile(path.join(sdkDir, 'package.json'), 'utf8'));
 if (sdk.version !== pkg.dependencies['@inboxsdk/core']) {
@@ -33,5 +41,5 @@ await copyFile(path.join(root, '../LICENSE'), path.join(out, 'LICENSE'));
 await copyFile(path.join(root, 'THIRD_PARTY_NOTICES.md'), path.join(out, 'THIRD_PARTY_NOTICES.md'));
 await cp(path.join(root, 'third-party'), path.join(out, 'third-party'), { recursive: true });
 await writeFile(path.join(out, 'config.js'),
-  `// Local build configuration; do not commit.\nglobalThis.YubinBoxPocConfig = Object.freeze(${JSON.stringify({ appId: config.appId, sdkVersion: sdk.version, diagnosticOutput: config.diagnosticOutput === true })});\n`);
+  `// Local build configuration; do not commit.\nglobalThis.YubinBoxPocConfig = Object.freeze(${JSON.stringify({ appId: config.appId, sdkVersion: sdk.version, diagnosticOutput: config.diagnosticOutput === true, identities })});\n`);
 console.log(`Built extension/dist/manifest.json (InboxSDK ${sdk.version}). Gmail runtime remains unverified.`);

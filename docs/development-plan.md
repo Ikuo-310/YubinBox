@@ -1,5 +1,9 @@
 # 開発方針と最初の検証
 
+Reply修正後の次の実機確認：visible recipient emails単一一致でfull timeoutに左右されずautoになること、pendingがない下部Replyで同一ThreadViewの最後を採用することを確認します。以下の下部fallback未対応という旧記録はこの修正で更新されます。New／Forwardは探索なしを維持します。
+
+2026-09-15：共通送信データと登録Identity判定を追加。次はFirefox実機で[sending-data]のnew/reply/forward、受信IdentityからのReply自動決定、判定不能時fallback、Forwardの非相関を確認します。Reply／Reply Allは区別せず、newでは返信元探索をしません。送信元確認表示は必須、auto Replyは通常変更不可、New／Forwardは選択可能とするUIを次段階で検討します。下部ボタンから最後のMessageViewを選ぶ方式は安全な操作識別が未確立のため未対応です。RFCヘッダー・Gateway・SMTP送信は今回追加しません。
+
 機能実装よりも、変更しやすい責務分離と未検証事項の確認を優先します。必要になるまでフレームワーク、ライブラリ、ビルド基盤、CI、データベース、Docker構成を導入しません。
 
 ## 最初のIssue候補：Firefox＋InboxSDKでGmail連携を検証する

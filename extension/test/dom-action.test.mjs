@@ -7,6 +7,52 @@ const source = await readFile(new URL('../src/dom-action.js', import.meta.url), 
 const sandbox = vm.createContext({});
 vm.runInContext(source, sandbox);
 const helper = sandbox.YubinBoxDomAction;
+test('bottom Reply button stores only a single containing SDK MessageView', async () => {
+  for (const count of [0, 1, 2]) {
+    let click;
+    const logs = [];
+    const button = element({ role: 'button', 'aria-label': '返信' });
+    const icon = element({}, button);
+    sandbox.YubinBoxProbe = {
+      readAsync: async () => ({ status: 'ok', value: 'fixture-bottom-message' }),
+      read: () => ({ status: 'api-unavailable' }),
+    };
+    const tracker = helper.start({ Conversations: { registerMessageViewHandler(fn) {
+      for (let i = 0; i < count; i++) fn({ on() {}, getElement: () => ({ contains: (node) => node === button || node === icon }) });
+    } } }, true, { addEventListener(type, fn) { click = fn; } }, (line) => logs.push(line));
+    click({ isTrusted: true, target: icon });
+    await new Promise(setImmediate);
+    const pending = JSON.parse(logs.find((line) => line.startsWith('[YubinBox PoC][dom-pending-target]')).split('\n')[1]);
+    assert.equal(pending.source, 'bottom-reply');
+    assert.equal(pending.matchCount, count);
+    assert.equal(pending.stored, count === 1);
+    if (count === 1) assert.equal(pending.reason, 'bottom-reply-action-inside-single-message-view');
+    await tracker.correlate('bottom-compose', true);
+    assert.equal(JSON.parse(logs.at(-1).split('\n')[1]).correlated, count === 1);
+    await tracker.correlate('later-compose', true);
+    assert.equal(JSON.parse(logs.at(-1).split('\n')[1]).correlated, false);
+  }
+});
+test('bottom source shares the five second TTL; Reply All, Forward and menuitems do not store', async () => {
+  const records = [];
+  let clock = 0;
+  const tracker = helper.createPendingTracker((line) => records.push(JSON.parse(line.split('\n')[1])),
+    () => clock, async () => ({ status: 'ok', value: 'fixture' }));
+  tracker.capture([{}], 'bottom-reply');
+  await new Promise(setImmediate);
+  clock = 5000;
+  await tracker.correlate('expired', true);
+  assert.equal(records.at(-1).correlated, false);
+  let click;
+  const logs = [];
+  helper.start({ Conversations: { registerMessageViewHandler() {} } }, true,
+    { addEventListener(type, fn) { click = fn; } }, (line) => logs.push(line));
+  for (const [role, label] of [['button', '全員に返信'], ['button', '転送'], ['menuitem', '返信']]) {
+    click({ isTrusted: true, target: element({ role, 'aria-label': label }) });
+  }
+  await new Promise(setImmediate);
+  assert.equal(logs.some((line) => line.includes('[dom-pending-target]')), false);
+});
 test('pending menu target requires exactly one match and Reply consumes it once', async () => {
   for (const count of [0, 1, 2]) {
     const logs = [];

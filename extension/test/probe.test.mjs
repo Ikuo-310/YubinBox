@@ -95,7 +95,7 @@ for (const diagnosticOutput of [true, false, 'true']) {
     let reads = 0;
     const records = [];
     const view = Object.assign(new EventEmitter(), {
-      isReply: () => true,
+      isReply: () => true, isForward: () => false,
       getSubject: () => { reads++; return 'synthetic-private-subject'; },
       getThreadID: () => 'synthetic-thread',
       getCurrentDraftID: async () => { reads++; return 'synthetic-draft'; },
@@ -119,7 +119,7 @@ for (const diagnosticOutput of [true, false, 'true']) {
       console: { info() {}, warn() {}, error() {}, groupCollapsed() {}, groupEnd() {},
         log(value) {
           assert.equal(typeof value, 'string');
-          if (value.includes('"compose"')) assert.match(value, /^\[YubinBox PoC\]\[(snapshot|related)\]\n\{/);
+          if (value.includes('"compose"')) assert.match(value, /^\[YubinBox PoC\]\[(snapshot|related|sending-data)\]\n\{/);
           assert.equal(value.includes('synthetic-only'), false);
           records.push(JSON.parse(value.startsWith('[YubinBox PoC]') ? value.slice(value.indexOf('\n') + 1) : value));
         } },

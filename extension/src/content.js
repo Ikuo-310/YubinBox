@@ -62,12 +62,29 @@
     console.log(`${prefix}[${kind}]\n${JSON.stringify(plain, null, 2)}`);
   }
   let domDiagnostics;
+  // UI-facing PoC state. Selection is by registered id only; no send operation.
+  globalThis.YubinBoxComposeState = Object.freeze({
+    get(compose) {
+      const state = [...views.values()].find((v) => v.label === compose);
+      return state?.sendingData ? JSON.parse(JSON.stringify(state.sendingData)) : null;
+    },
+    selectIdentity(compose, identityId) {
+      const state = [...views.values()].find((v) => v.label === compose);
+      if (!state?.sendingData || state.sendingData.identityConfirmation.readOnly ||
+          !probe.registeredIdentities(config.identities).some((v) => v.id === identityId)) return false;
+      state.selectedIdentityId = identityId;
+      state.refresh();
+      return true;
+    },
+  });
   function registerCompose(view) {
     if (views.has(view)) return;
     const state = { label: `compose-${++sequence}`, timers: new Map(), revision: 0, busy: false, listeners: [] };
     views.set(view, state);
+    state.correlation = Promise.resolve(null);
     if (domDiagnostics && config.diagnosticOutput === true) {
-      void domDiagnostics.correlate(state.label, probe.read(view, 'isReply').value === true);
+      state.correlation = domDiagnostics.correlate(state.label, probe.read(view, 'isReply').value === true,
+        probe.read(view, 'isForward').value ?? null).catch(() => null);
     }
     const capture = async (reason, includeRelated = true) => {
       if (view.destroyed || !views.has(view)) return;
@@ -85,7 +102,9 @@
       if (!includeRelated) return;
       const [draftId, related] = await Promise.all([
         probe.readAsync(view, 'getCurrentDraftID'),
-        probe.relatedMessages(snapshot.gmailInternalIds.threadId, [...threads]),
+        probe.composeMode(snapshot) === 'reply'
+          ? probe.relatedMessages(snapshot.gmailInternalIds.threadId, [...threads])
+          : Promise.resolve(probe.unavailable('Reply-source lookup skipped for new/forward Compose.')),
       ]);
       if (view.destroyed || !views.has(view)) return;
       diagnosticOutput('related', {
@@ -93,12 +112,19 @@
         completedAt: new Date().toISOString(), changedDuringLookup: state.revision !== revision,
         gmailInternalDraftId: draftId, relatedMessages: related,
       });
+      const correlation = probe.composeMode(snapshot) === 'reply'
+        ? await probe.resolveReplySource('reply', snapshot.gmailInternalIds.threadId, [...threads], await state.correlation, config.identities)
+        : null;
+      if (view.destroyed || !views.has(view) || state.revision !== revision) return;
+      state.sendingData = probe.sendingData(snapshot, draftId, correlation, config.identities, state.selectedIdentityId);
+      console.log(`${prefix}[sending-data]\n${JSON.stringify({ compose: state.label, revision, ...state.sendingData }, null, 2)}`);
     };
     const captureEvent = (reason) => {
       void capture(reason).catch(() => {
         console.error(`${prefix} ${state.label} ${reason} capture failed; exception details omitted.`);
       });
     };
+    state.refresh = () => captureEvent('identity-selected');
     state.captureRelated = async () => {
       if (state.busy) return;
       state.busy = true;

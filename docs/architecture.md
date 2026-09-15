@@ -2,6 +2,16 @@
 
 この文書は初期設計方針です。APIスキーマやデータベース定義を確定するものではありません。
 
+## 拡張側の送信判断（2026-09-15）
+
+Replyの受信Identity照合はvisible recipient emailsを優先し、単一一致なら自動決定・read-only確認表示とします。0一致時だけgetRecipientsFull()で補助し、不明・複数一致はmanual-requiredです。sourceはfresh pending優先、なければ同一ThreadViewの最後のMessageViewを使います。このfallbackはNew／Forwardには適用しません。
+
+Composeはnew/reply/forwardへ正規化し、isForwardを優先します。Reply Allはreplyと同じ扱いです。Gmail ComposeのTo/Cc/Bcc・Subject・本文text/HTMLを正とし、件名や宛先を再構築しません。newでは返信元探索を行わず、保存後の内部Thread IDも返信元とは扱いません。
+
+登録Sending Identityはid/address/transportを持ち、transportはgmailまたはyubinboxです。末尾ドメイン推測はしません。Replyは返信元の受信宛先と登録Identityの単一一致で自動決定し、送信元確認表示を必須・通常変更不可とします。不明・複数一致等の場合だけ手動fallbackします。New／ForwardはユーザーがIdentityを選択します。PoCではローカル設定で登録定義を与え、将来のGateway連携を先行実装しません。
+
+共通送信データにはmode・sendingIdentity・transport・identityResolution・確認表示情報とCompose内容、Gmail内部ID・sourceMessageを保持します。gmailは将来Gmail標準送信、yubinboxはGateway送信へ接続する区分で、現PoCは送信しません。RFC reply headersは未対応です。Gmail内部Message IDをRFC Message-IDやSMTP In-Reply-Toへ転用しません。
+
 ## 全体像と責務
 
 ```text

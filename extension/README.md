@@ -4,6 +4,46 @@ Firefox上のGmail Webで、InboxSDKの読み込み・Compose検出・送信に�
 
 ## 事前準備
 
+### 共通送信データPoC（2026-09-15）
+
+最新のReply Identity方針：取得できたsourceRecipientEmailsが登録Identityに1件一致なら登録定義でauto、0件一致ならGmail nativeへauto fallbackします。Gmailアドレスの登録は不要で、sendingIdentity=null・transport=gmail・identityReason=no-yubinbox-identity-matchです。アドレス末尾を判定せず、未登録の独自ドメイン宛も同じ扱いです。確認表示は必須・read-only・選択不可で、アドレスはnullのまま保持します。宛先取得不能（空リストを含む）と複数一致だけmanual-requiredです。New／Forwardは従来の手動選択を維持します。以下の未登録をmanual-requiredとする旧説明はこの方針で更新されます。
+
+Reply修正の最新方針：Identity照合は`getRecipientEmailAddresses()`（visible recipient emails）を優先します。登録Identityに1件一致すればgetRecipientsFull()を待たずauto、確認表示必須・read-onlyになります。0件の場合だけgetRecipientsFull()を補助取得し、それでも不明ならmanual-required。visibleで複数一致する場合は補助リストで曖昧さを消さずmanual-requiredです。既存related診断のgetRecipientsFull() timeoutは残る場合がありますが、Identity判定の必須条件ではありません。
+
+Reply sourceはfresh pendingを優先します。なければComposeのGmail Thread IDと一致する単一ThreadViewのgetMessageViewsAll()の最後を採用し、source=thread-bottom-replyとします。ID取得不能・ThreadView不明／複数の場合はmanual-requiredです。New／Forwardではこのfallbackを呼びません。三点メニューの単一一致・5秒TTL・consume-onceは維持します。以下の「最後のMessageView方式は未対応」という初回説明はこの修正で置き換えられます。
+
+[sending-data]にはsourceRecipientEmails・recipientSource（visible-recipient-emails／recipients-full／unavailable）・matchedIdentityを追加しました。transportは引き続き登録Identity定義から決めます。再ビルド後、三点メニューと下部返信をGmail宛／独自ドメイン宛の両方で確認してください。
+
+modeはisForward=trueを最優先してforward、isForward=falseかつisReply=trueならreply、それ以外はnewです。ReplyとReply Allは区別しません。Gmail ComposeのTo／Cc／Bcc・Subject・本文text/HTMLをそのまま使い、件名や宛先を再構築しません。newは保存後にThread IDが付いても返信元探索をskipします。ForwardはReply相関を成立させません。
+
+ローカル`config.local.json`の`identities`に登録Identityを指定します。例は架空値です。既定は空リストで、idの重複や不正な定義はビルド時に拒否します。
+
+```json
+"identities": [
+  { "id": "gmail-default", "address": "account@example.invalid", "transport": "gmail" },
+  { "id": "contact", "address": "contact@example.invalid", "transport": "yubinbox" }
+]
+```
+
+transportは登録定義から決め、アドレス末尾から推測しません。SMTP情報・Tokenは設定しません。Replyでは相関した元MessageViewのgetRecipientsFull()と登録アドレスを大文字小文字を区別せず照合し、1件一致ならauto。送信元確認表示を必須とし、通常変更不可です。元メール不明・複数一致・Bcc等で宛先が見えない・取得失敗時はmanual-requiredとして手動fallbackを許可します。New／Forwardはmanualで選択前提です。
+
+diagnosticOutput=trueでは`[sending-data]`に以下を出し、UI接続用状態として保持します。
+
+```text
+mode, sendingIdentity: {id,address,transport} | null, transport,
+identityResolution: manual | auto | manual-required, identityReason,
+identityConfirmation: {required,readOnly,selectionAllowed,address,transport},
+to, cc, bcc, subject, bodyText, bodyHtml, gmailThreadId, gmailDraftId,
+sourceMessage: {gmailMessageId,source: message-menu | thread-bottom-reply | null},
+fieldStatus
+```
+
+content-script内APIは`YubinBoxComposeState.get(compose連番)`（コピー取得）と`selectIdentity(compose連番, 登録id)`（非同期再取得）です。不明idやauto Replyの変更は拒否します。MAIN worldには公開しません。現段階ではdiagnosticOutput=falseのとき取得・詳細ログ・状態生成を行いません。UI自体は未実装です。
+
+三点メニューの単一一致・5秒TTL・使い捨ては維持します。元MessageViewから宛先だけをコピーし、SDKオブジェクトをpayloadへ含めません。下部Replyは既存の単一包含候補を利用できますが、「スレッド末尾」と安全に識別できないため最後のMessageViewを選ぶ方式は未対応です。取得できなければ手動fallbackします。
+
+gmail transportは将来Gmail標準送信、yubinbox transportは将来Gateway送信へ接続する区分です。今回はどちらも実送信しません。Gmail内部Message IDはRFC Message-IDではなく、RFC reply headersはpayloadへ含めません。既存のsnapshot／related等は維持し、new／forwardのrelatedはskip状態を出します。
+
 1. Node.js 22以上とnpm、Firefox 128以上を用意します。128は注入に使うMAIN execution worldの対応下限で、InboxSDKの動作保証ではありません。実際に使ったFirefoxのバージョンを記録してください。
 2. [InboxSDK App ID管理ページ](https://register.inboxsdk.com/)でGoogleアカウントにサインインし、アプリを登録してApp IDを発行します。PoCでも自分の登録済みIDを使います。OAuthクライアントやGmail API Tokenの取得は不要です。
 3. 他のInboxSDK利用拡張の影響を避けられるFirefoxの検証用プロファイルと、検証用Gmailアカウントを用意します。返信確認には既存のテストメールを使います。
@@ -58,6 +98,12 @@ npm run build
 ## 判定上の制約
 
 ### 限定DOM操作診断（本番依存ではない）
+
+下部Reply候補にもpending診断を追加しました。既存の最大8要素の親探索でaria-label／titleがReply／返信に完全一致した要素がBUTTONまたはrole=buttonの場合だけ対象です。画面下部という位置自体は判定しないため、あくまで下部ボタン候補です。文字列解析や未確認の属性・classは追加していません。ラベルなしや別表記の場合は既存dom-clickで未分類を確認してください。
+
+包含一致の件数を`[dom-pending-target]`の`source: "bottom-reply"`・matchCount・storedで記録します。単一一致ならreasonは`bottom-reply-action-inside-single-message-view`、0件・複数件なら保存しません。SDKのID取得成功・5秒TTL・次Composeで使い捨て・isReply===trueという既存条件を共用します。Reply All／Forward／menuitemはこの保存経路に追加していません。三点メニューの検出・処理は従来どおりです。
+
+実機では再ビルドと拡張・Gmail再読み込み後、テストthread末尾の下部返信をクリックし、上記sourceのmatchCountとstored、その後の`[dom-compose-correlation]`を確認してください。0件ならthread末尾から最後のMessageViewへ推定せず、その結果を記録します。単一一致の場合もExact Reply Targetはunsupportedのままです。
 
 三点メニュー起点の相関PoC：aria-labelまたはtitleが「その他のメッセージ オプション」と完全一致するBUTTON（またはrole=button）について、SDK MessageView.getElement()との包含一致が1件だけならpending候補を保持します。SDK Message ID取得成功が必要で、クリック時刻からTTLは5秒です。0件・複数件の新しいメニュー操作は以前の候補を破棄します。
 

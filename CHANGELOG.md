@@ -6,6 +6,14 @@
 
 ### Added
 
+- Replyの取得済み宛先が登録Identityに一致しない場合、Identityを生成せずGmail nativeへauto fallback。確認表示はread-only、New／Forwardは従来どおり。
+
+- ReplyのIdentity判定をvisible recipient emails優先へ修正。full宛先取得は補助に限定。fresh pendingがないReplyは同一ThreadViewの最後のMessageViewをsourceに採用し、New／Forwardは従来どおり探索しない。
+
+- new/reply/forward共通送信データ、Bcc、登録Identityとtransport、送信元確認表示用状態を追加。Replyは元メール統合宛先の単一一致で自動決定し、不明時のみ手動fallback。New／Forwardは手動選択。Forwardの誤Reply相関を修正し、新規Composeの返信元探索をskip。
+
+- 下部Replyボタン候補のSDK MessageView包含判定を既存pending診断へ追加。source=bottom-replyと一致件数・保存結果を出力し、5秒TTL・使い捨て・未確定扱いを維持。
+
 - 三点メニュー起点の単一MessageView候補と新規Reply Composeの時間的相関診断。TTLはクリックから5秒、使い捨て。exactReplyTargetには反映しない。
 
 - DOM helper評価・listener登録の段階ログと、最初の30クリックに限定した未分類クリック診断を追加。未知ラベルの原文は出さず、既存selector・操作分類は維持。

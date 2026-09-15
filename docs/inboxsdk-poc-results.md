@@ -2,6 +2,58 @@
 
 ## 現在の結論
 
+### Reply未登録時のGmail native fallback
+
+仕様簡素化により、sourceRecipientEmailsが取得できて登録一致0件ならGmail nativeへauto fallbackします。Identityオブジェクトを生成せずsendingIdentity=null、transport=gmail、reason=no-yubinbox-identity-match、確認表示必須・read-onlyとします。1件一致は登録定義に従い、取得不能／複数一致はmanual-requiredです。New／Forwardには変更なし。過去の「autoには必ずIdentity登録が必要」という結論はこの仕様変更で置き換えられます。
+
+三点メニュー・下部Replyの実モジュール統合テストも新仕様へ更新しました。未登録Gmail／未登録独自ドメインでもIdentityを生成しない回帰テストを追加。実機は再ビルド後にsending-dataのtransport・identityReason・確認表示情報を確認してください。
+
+### 最新ログによる原因確定と訂正
+
+ローカル設定のidentities未設定、dist/config.jsの登録Identity数0、生成JSとソースの一致を確認しました。添付実機ログではrelatedのvisible宛先はok、fullはtimeoutでした。relatedはcandidates[].visibleRecipientEmailsを表示する独立経路です。sending-dataはcorrelation.sourceRecipientsから生成し、sendingDataのvisibleMatches.length>0という条件により、登録0件では保持済みvisible配列を採用せず、full timeoutから空配列へ進んでいました。前回の「受け渡し時の紛失」という説明だけでは、この実機条件を説明できていませんでした。
+
+修正は、登録一致なしでも補助取得が失敗した場合にvisible配列を表示し、登録0件をno-registered-identitiesとして区別するものです。未登録アドレスからIdentityやtransportを自動生成しません。autoにはローカルidentitiesの登録と再ビルドが必要です。ユーザー設定そのものは変更していません。
+
+既存テストは最終resolverに一致する登録Identityを渡しており、未登録での表示不具合を検出していませんでした。新たにprobe.js／dom-action.js／content.jsを実際に同一VMへ読み込み、source決定からrelated・sending-dataまでを通す4ケース（三点メニュー／下部×未登録／登録あり）を追加しました。SDK境界のみ架空MessageViewを使い、補助APIは実タイムアウト経路を通します。62テスト成功。New／Forwardのコードは変更していません。
+
+### Reply宛先の受け渡し修正
+
+sourceRecipientsの補助取得が失敗した場合に、取得済みvisibleRecipientEmailsが最終resolverで無視され、三点メニューのコピー処理でも落ちる経路を修正しました。同一source MessageViewから取得した配列を明示的に保持し、最終登録Identity照合でもvisibleを優先します。Message IDからの再探索は追加していません。収集時と最終判定時で登録情報が異なるケースを含む回帰テストで再現・修正を確認しましたが、実機症状との一致と修正後動作は再確認が必要です。
+
+既存55件を含む58テスト成功。三点メニュー／下部Replyで同一インスタンスを使用すること、補助取得失敗・timeoutでもvisible単一一致を維持することを検証しました。source優先順位・TTL・consume-once・New／Forwardの処理は変更していません。
+
+### Reply実機不具合修正（2026-09-15、最新）
+
+実機では元MessageViewのvisible recipient emailsが取得できてもgetRecipientsFull()のtimeoutでIdentityが未決定となっていました。Identity判定はvisible優先へ変更し、単一登録Identity一致ならauto・read-only確認表示とします。0一致時だけfullを補助取得、不明または複数一致はmanual-requiredです。Gmail／YubinBoxは登録定義のtransportで決定します。
+
+fresh pendingがないreplyでは、ComposeのThread IDと一致する単一ThreadViewの最後のMessageViewをsource=thread-bottom-replyとして採用します。fresh pendingは上書きしません。Thread不明・複数一致・Message ID取得失敗時はsource未確定です。New／Forwardでは探索しません。本文・件名・宛先DOM解析やRFCヘッダーは追加していません。
+
+既存48件を含む55テスト成功。今回の変更後の実機結果は未確認です。三点メニュー／下部返信でGmail・独自ドメイン宛を比較し、sending-dataのsourceMessage、sourceRecipientEmails、recipientSource、matchedIdentity、transportを確認してください。過去のfull必須・下部fallback未対応の記録は履歴です。
+
+### 共通送信データ・Identity整理（2026-09-15、最新方針）
+
+Reply／Reply Allは同じreplyに統合します。isForward=trueを優先してforward、isForward=falseかつisReply=trueならreply、それ以外はnewです。Gmail ComposeのTo/Cc/Bcc・件名・本文text/HTMLをそのまま使います。newでは保存後のThread IDも返信元と解釈せず、reply-source探索をskipします。
+
+Replyは三点メニュー等で相関した元MessageViewのgetRecipientsFull()と登録Identityを照合し、1件一致ならauto・送信元確認表示必須・通常変更不可。元メール不明、複数一致、Bcc等で受信先が見えない、タイムアウト等はmanual-requiredです。New／Forwardはmanual選択。Identityはid/address/transportを保持し、登録定義からgmail/yubinboxを決めます。アドレス末尾で推測しません。
+
+三点メニューの単一一致・5秒TTL・consume-onceは維持し、sourceMessageはSDK内部Message IDとmessage-menuを保持します。ForwardではisReply=trueでも相関を成立させず候補を消費します。下部Replyは既存の単一包含候補をthread-bottom-replyとして利用できますが、最後のMessageViewを選ぶ方式は未対応です。現在の属性一致だけでは末尾ボタンと個別Replyを安全に区別できないためです。
+
+共通データと確認表示用状態を追加しました。RFC reply headersは含めず、内部Message IDをRFC Message-IDとして使いません。UI・Gateway・SMTP送信は未実装です。既存exactReplyTargetのunsupported診断は維持しています。
+
+ローカル48テスト成功。mode、登録Identityの単一／複数／不明判定、transport、手動選択、Forward誤相関防止、新規探索skip、Bcc保持を検証しました。今回の共通データとIdentity自動判定はFirefox実機未検証です。
+
+実機ではローカルIdentityを設定して再ビルド・再読み込みし、new／Reply／Reply All／Forwardの[sending-data]を確認してください。三点メニュー起点のsourceMessageと送信元を照合し、複数Identity宛・未登録宛のmanual-required、Forwardのcorrelated=false、newのrelated探索skipを確認します。過去のReply All専用判定の調査記録は履歴として残します。
+
+### 下部Reply pending診断
+
+利用者の実機報告では、三点メニュー経由で1通目・2通目それぞれのSDK Message IDとReply Composeの相関に成功しました。下部返信はisReply=trueでもpendingTarget=nullでした。実メールの内部IDそのものは本書へ記録しません。
+
+今回、既存のReply／返信の属性完全一致とBUTTON／role=buttonを満たすコントロールを下部Reply候補として追加しました。位置を推定するselector、本文・表示テキスト・任意data値の読み取りはありません。SDK MessageView.getElement()との包含一致のみを使います。単一一致・SDK ID取得成功ならsource=bottom-replyで既存pendingへ保存し、0件・複数件ならstored=falseとmatchCount・理由を出します。5秒TTL、使い捨て、Reply Compose限定、exactReplyTarget.status=unsupportedは維持しています。
+
+下部ボタンが実際にMessageView配下にあるかは未検証です。再ビルド・再読み込み後に下部返信をクリックし、`[dom-pending-target]`のsource／matchCount／storedと`[dom-compose-correlation]`を確認してください。ログが出ない場合は属性完全一致・button条件を満たしているか既存dom-clickで確認します。0件の場合、最後のメールを自動選択しません。三点メニュー経由の回帰確認も行ってください。
+
+ローカル自動テストは既存33件と追加2件の計35件が成功しました。単一／0件／複数一致、bottom sourceのTTL・使い捨て、Reply All／Forward／menuitemの非対象を検証しています。
+
 ### 三点メニュー起点とReply Composeの時間的相関PoC
 
 「その他のメッセージ オプション」BUTTONとSDK MessageView要素の包含一致を使い、単一候補のSDK内部Message IDをクリック時刻から5秒だけ相関対象にします。0件・複数件は保持せず、次の新規Composeで一度だけ消費します。Reply判定true・期限内・ID取得成功時のみ別診断`[dom-compose-correlation]`を出力します。保持状況は`[dom-pending-target]`です。ID取得とCompose検出の非同期順序も考慮しています。
